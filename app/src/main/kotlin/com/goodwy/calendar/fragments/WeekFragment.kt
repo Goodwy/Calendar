@@ -742,6 +742,7 @@ class WeekFragment : Fragment(), WeeklyCalendar {
 
                 y = minutes * minuteHeight - markerHeight / 2
             }
+            currentTimeView?.bringToFront()
         }
     }
 
