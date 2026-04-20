@@ -1,29 +1,34 @@
 package com.goodwy.calendar.activities
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import com.goodwy.calendar.R
 import com.goodwy.calendar.databinding.DayMonthlyNumberViewBinding
 import com.goodwy.calendar.databinding.WidgetConfigMonthlyBinding
-import com.goodwy.calendar.extensions.addDayEvents
 import com.goodwy.calendar.extensions.config
 import com.goodwy.calendar.extensions.isWeekendIndex
 import com.goodwy.calendar.helpers.MonthlyCalendarImpl
 import com.goodwy.calendar.helpers.MyWidgetMonthlyProvider
+import com.goodwy.calendar.helpers.WIDGET_MONTH_EVENTS_BOLD
+import com.goodwy.calendar.helpers.WIDGET_MONTH_EVENTS_COLOR
+import com.goodwy.calendar.helpers.WIDGET_MONTH_EVENTS_INVISIBLE
 import com.goodwy.calendar.interfaces.MonthlyCalendar
 import com.goodwy.calendar.models.DayMonthly
 import com.goodwy.commons.dialogs.ColorPickerDialog
+import com.goodwy.commons.dialogs.RadioGroupDialog
 import com.goodwy.commons.extensions.*
 import com.goodwy.commons.helpers.IS_CUSTOMIZING_COLORS
 import com.goodwy.commons.helpers.LOWER_ALPHA
+import com.goodwy.commons.models.RadioItem
 import org.joda.time.DateTime
 
 class WidgetMonthlyConfigureActivity : SimpleActivity(), MonthlyCalendar {
@@ -36,14 +41,16 @@ class WidgetMonthlyConfigureActivity : SimpleActivity(), MonthlyCalendar {
     private var mTextColor = 0
     private var mSecondTextColor = 0
     private var mLabelColor = 0
+    private var mEventsVisibility = 0
 
     private val binding by viewBinding(WidgetConfigMonthlyBinding::inflate)
 
     public override fun onCreate(savedInstanceState: Bundle?) {
         useDynamicTheme = false
         super.onCreate(savedInstanceState)
-        setResult(Activity.RESULT_CANCELED)
+        setResult(RESULT_CANCELED)
         setContentView(binding.root)
+        setupEdgeToEdge(padTopSystem = listOf(binding.configMonthlyHolder), padBottomSystem = listOf(binding.root))
         initVariables()
 
         val isCustomizingColors = intent.extras?.getBoolean(IS_CUSTOMIZING_COLORS) ?: false
@@ -71,6 +78,33 @@ class WidgetMonthlyConfigureActivity : SimpleActivity(), MonthlyCalendar {
                 configWidgetName.toggle()
                 handleWidgetNameDisplay()
             }
+
+            eventsVisibilityHolder.setOnClickListener { showEventsVisibilitySelector() }
+            updateEventsVisibility(config.widgetMonthEventsVisibility)
+        }
+    }
+
+    private fun showEventsVisibilitySelector() {
+        hideKeyboard()
+        val items = arrayListOf(
+            RadioItem(WIDGET_MONTH_EVENTS_INVISIBLE, getString(com.goodwy.commons.R.string.never)),
+            RadioItem(WIDGET_MONTH_EVENTS_BOLD, getString(com.goodwy.commons.R.string.typeface_bold)),
+            RadioItem(WIDGET_MONTH_EVENTS_COLOR, getString(R.string.event_color)),
+        )
+
+        RadioGroupDialog(this, items, mEventsVisibility) {
+            val option = it as Int
+            updateEventsVisibility(option)
+            updateDays()
+        }
+    }
+
+    private fun updateEventsVisibility(eventsVisibility: Int) {
+        mEventsVisibility = eventsVisibility
+        when (eventsVisibility) {
+            WIDGET_MONTH_EVENTS_BOLD -> binding.eventsVisibilityValue.setText(com.goodwy.commons.R.string.typeface_bold)
+            WIDGET_MONTH_EVENTS_COLOR -> binding.eventsVisibilityValue.setText(R.string.event_color)
+            else -> binding.eventsVisibilityValue.setText(com.goodwy.commons.R.string.never)
         }
     }
 
@@ -105,10 +139,11 @@ class WidgetMonthlyConfigureActivity : SimpleActivity(), MonthlyCalendar {
         storeWidgetColors()
         requestWidgetUpdate()
         config.showWidgetName = binding.configWidgetName.isChecked
+        config.widgetMonthEventsVisibility = mEventsVisibility
 
         Intent().apply {
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, mWidgetId)
-            setResult(Activity.RESULT_OK, this)
+            setResult(RESULT_OK, this)
         }
         finish()
     }
@@ -238,6 +273,14 @@ class WidgetMonthlyConfigureActivity : SimpleActivity(), MonthlyCalendar {
         if (!day.isThisMonth) {
             textColor = textColor.adjustAlpha(LOWER_ALPHA)
         }
+        val widgetMonthEventsColor = mEventsVisibility == WIDGET_MONTH_EVENTS_COLOR
+        val widgetMonthEventsBold = mEventsVisibility == WIDGET_MONTH_EVENTS_BOLD
+        val dayEventColor = day.dayEvents.firstOrNull()?.color
+        if (!day.isToday && day.isThisMonth) {
+            if (widgetMonthEventsColor) {
+                textColor = dayEventColor ?: rawTextColor
+            }
+        }
 
         DayMonthlyNumberViewBinding.inflate(layoutInflater).apply {
             root.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -247,6 +290,7 @@ class WidgetMonthlyConfigureActivity : SimpleActivity(), MonthlyCalendar {
             dayMonthlyNumberId.apply {
                 setTextColor(textColor)
                 text = day.value.toString()
+                if (dayEventColor != null && (widgetMonthEventsColor || widgetMonthEventsBold)) setTypeface(null, Typeface.BOLD)
                 gravity = Gravity.CENTER// or Gravity.CENTER_HORIZONTAL
             }
 
@@ -266,8 +310,10 @@ class WidgetMonthlyConfigureActivity : SimpleActivity(), MonthlyCalendar {
     }
 
     private fun updateLabels() {
+        val displayWeekNumbers = config.showWeekNumbers
         val weekendsTextColor = config.highlightWeekendsColor
         binding.configCalendar.firstRow.apply {
+            weekNum.beVisibleIf(displayWeekNumbers)
             arrayOf(label0, label1, label2, label3, label4, label5, label6).forEachIndexed { index, textView ->
                 val textColor = if (config.highlightWeekends && isWeekendIndex(index)) {
                     weekendsTextColor

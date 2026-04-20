@@ -6,7 +6,14 @@ import com.goodwy.calendar.activities.SimpleActivity
 import com.goodwy.calendar.databinding.DialogManageAutomaticBackupsBinding
 import com.goodwy.calendar.extensions.config
 import com.goodwy.commons.dialogs.FilePickerDialog
-import com.goodwy.commons.extensions.*
+import com.goodwy.commons.extensions.getAlertDialogBuilder
+import com.goodwy.commons.extensions.hideKeyboard
+import com.goodwy.commons.extensions.humanizePath
+import com.goodwy.commons.extensions.isAValidFilename
+import com.goodwy.commons.extensions.setupDialogStuff
+import com.goodwy.commons.extensions.toast
+import com.goodwy.commons.extensions.value
+import com.goodwy.commons.extensions.viewBinding
 import com.goodwy.commons.helpers.ensureBackgroundThread
 import java.io.File
 
@@ -14,7 +21,7 @@ class ManageAutomaticBackupsDialog(private val activity: SimpleActivity, onSucce
     private val binding by activity.viewBinding(DialogManageAutomaticBackupsBinding::inflate)
     private val config = activity.config
     private var backupFolder = config.autoBackupFolder
-    private var selectedEventTypes = config.autoBackupEventTypes.ifEmpty { config.displayEventTypes }
+    private var selectedCalendars = config.autoBackupCalendars.ifEmpty { config.displayCalendars }
 
     init {
         binding.apply {
@@ -52,9 +59,9 @@ class ManageAutomaticBackupsDialog(private val activity: SimpleActivity, onSucce
                 selectBackupFolder()
             }
 
-            manageEventTypesHolder.setOnClickListener {
-                SelectEventTypesDialog(activity, selectedEventTypes) {
-                    selectedEventTypes = it
+            manageCalendarsHolder.setOnClickListener {
+                SelectCalendarsDialog(activity, selectedCalendars) {
+                    selectedCalendars = it
                 }
             }
         }
@@ -62,7 +69,11 @@ class ManageAutomaticBackupsDialog(private val activity: SimpleActivity, onSucce
             .setPositiveButton(com.goodwy.commons.R.string.ok, null)
             .setNegativeButton(com.goodwy.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this, com.goodwy.commons.R.string.manage_automatic_backups) { dialog ->
+                activity.setupDialogStuff(
+                    view = binding.root,
+                    dialog = this,
+                    titleId = com.goodwy.commons.R.string.manage_automatic_backups
+                ) { dialog ->
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val filename = binding.backupEventsFilename.value
                         when {
@@ -76,7 +87,7 @@ class ManageAutomaticBackupsDialog(private val activity: SimpleActivity, onSucce
 
                                 val backupEventsChecked = binding.backupEventsCheckbox.isChecked
                                 val backupTasksChecked = binding.backupTasksCheckbox.isChecked
-                                if (!backupEventsChecked && !backupTasksChecked || selectedEventTypes.isEmpty()) {
+                                if (!backupEventsChecked && !backupTasksChecked || selectedCalendars.isEmpty()) {
                                     activity.toast(com.goodwy.commons.R.string.no_entries_for_exporting)
                                     return@setOnClickListener
                                 }
@@ -87,9 +98,10 @@ class ManageAutomaticBackupsDialog(private val activity: SimpleActivity, onSucce
                                         autoBackupFilename = filename
                                         autoBackupEvents = backupEventsChecked
                                         autoBackupTasks = backupTasksChecked
-                                        autoBackupPastEntries = binding.backupPastEventsCheckbox.isChecked
-                                        if (autoBackupEventTypes != selectedEventTypes) {
-                                            autoBackupEventTypes = selectedEventTypes
+                                        autoBackupPastEntries =
+                                            binding.backupPastEventsCheckbox.isChecked
+                                        if (autoBackupCalendars != selectedCalendars) {
+                                            autoBackupCalendars = selectedCalendars
                                         }
                                     }
 

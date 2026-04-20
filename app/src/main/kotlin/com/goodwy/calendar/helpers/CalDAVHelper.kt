@@ -11,8 +11,8 @@ import android.provider.CalendarContract.Events
 import android.provider.CalendarContract.Reminders
 import android.widget.Toast
 import com.goodwy.calendar.R
+import com.goodwy.calendar.extensions.calendarsDB
 import com.goodwy.calendar.extensions.config
-import com.goodwy.calendar.extensions.eventTypesDB
 import com.goodwy.calendar.extensions.eventsDB
 import com.goodwy.calendar.extensions.eventsHelper
 import com.goodwy.calendar.extensions.queryCursorInlined
@@ -20,10 +20,11 @@ import com.goodwy.calendar.extensions.refreshCalDAVCalendars
 import com.goodwy.calendar.extensions.scheduleCalDAVSync
 import com.goodwy.calendar.extensions.toLocalAllDayEvent
 import com.goodwy.calendar.extensions.toUtcAllDayEvent
+import com.goodwy.calendar.extensions.updateWidgets
 import com.goodwy.calendar.models.Attendee
 import com.goodwy.calendar.models.CalDAVCalendar
+import com.goodwy.calendar.models.CalendarEntity
 import com.goodwy.calendar.models.Event
-import com.goodwy.calendar.models.EventType
 import com.goodwy.calendar.models.Reminder
 import com.goodwy.calendar.objects.States.isUpdatingCalDAV
 import com.goodwy.commons.extensions.areDigitsOnly
@@ -55,19 +56,19 @@ class CalDAVHelper(val context: Context) {
             val calDAVCalendars =
                 getCalDAVCalendars(context.config.caldavSyncedCalendarIds, showToasts)
             for (calendar in calDAVCalendars) {
-                val localEventType =
-                    eventsHelper.getEventTypeWithCalDAVCalendarId(calendar.id) ?: continue
-                if (calendar.displayName != localEventType.title || calendar.color != localEventType.color) {
-                    localEventType.apply {
+                val localCalendar =
+                    eventsHelper.getCalendarWithCalDAVCalendarId(calendar.id) ?: continue
+                if (calendar.displayName != localCalendar.title || calendar.color != localCalendar.color) {
+                    localCalendar.apply {
                         title = calendar.displayName
                         caldavDisplayName = calendar.displayName
                         caldavEmail = calendar.accountName
                         color = calendar.color
-                        eventsHelper.insertOrUpdateEventTypeSync(this)
+                        eventsHelper.insertOrUpdateCalendarSync(this)
                     }
                 }
 
-                fetchCalDAVCalendarEvents(calendar, localEventType.id!!, showToasts)
+                fetchCalDAVCalendarEvents(calendar, localCalendar.id!!, showToasts)
             }
 
             if (scheduleNextSync) {
@@ -76,6 +77,7 @@ class CalDAVHelper(val context: Context) {
 
             callback()
         } finally {
+            context.updateWidgets()
             isUpdatingCalDAV = false
         }
     }
@@ -119,44 +121,44 @@ class CalDAVHelper(val context: Context) {
         return calendars
     }
 
-    fun updateCalDAVCalendar(eventType: EventType) {
+    fun updateCalDAVCalendar(calendar: CalendarEntity) {
         val uri =
-            ContentUris.withAppendedId(Calendars.CONTENT_URI, eventType.caldavCalendarId.toLong())
+            ContentUris.withAppendedId(Calendars.CONTENT_URI, calendar.caldavCalendarId.toLong())
         val values = ContentValues().apply {
-            val colorKey = getCalDAVColorKey(eventType)
+            val colorKey = getCalDAVColorKey(calendar)
             if (colorKey != null) {
-                put(Calendars.CALENDAR_COLOR_KEY, getCalDAVColorKey(eventType))
+                put(Calendars.CALENDAR_COLOR_KEY, getCalDAVColorKey(calendar))
             } else {
-                put(Calendars.CALENDAR_COLOR, eventType.color)
+                put(Calendars.CALENDAR_COLOR, calendar.color)
                 put(Calendars.CALENDAR_COLOR_KEY, "")
             }
-            put(Calendars.CALENDAR_DISPLAY_NAME, eventType.title)
+            put(Calendars.CALENDAR_DISPLAY_NAME, calendar.title)
         }
 
         try {
             context.contentResolver.update(uri, values, null, null)
-            context.eventTypesDB.insertOrUpdate(eventType)
+            context.calendarsDB.insertOrUpdate(calendar)
         } catch (_: IllegalArgumentException) {
         } catch (e: SecurityException) {
             context.showErrorToast(e)
         }
     }
 
-    private fun getCalDAVColorKey(eventType: EventType): String? {
-        val colors = getAvailableCalDAVCalendarColors(eventType)
-        return colors[eventType.color]
+    private fun getCalDAVColorKey(calendar: CalendarEntity): String? {
+        val colors = getAvailableCalDAVCalendarColors(calendar)
+        return colors[calendar.color]
     }
 
     @SuppressLint("MissingPermission")
     fun getAvailableCalDAVCalendarColors(
-        eventType: EventType,
+        calendar: CalendarEntity,
         colorType: Int = Colors.TYPE_CALENDAR,
     ): Map<Int, String> {
         val colors = mutableMapOf<Int, String>()
         val uri = Colors.CONTENT_URI
         val projection = arrayOf(Colors.COLOR, Colors.COLOR_KEY)
         val selection = "${Colors.COLOR_TYPE} = ? AND ${Colors.ACCOUNT_NAME} = ?"
-        val selectionArgs = arrayOf(colorType.toString(), eventType.caldavEmail)
+        val selectionArgs = arrayOf(colorType.toString(), calendar.caldavEmail)
 
         context.queryCursor(uri, projection, selection, selectionArgs) { cursor ->
             val colorKey = cursor.getStringValue(Colors.COLOR_KEY)
@@ -169,7 +171,7 @@ class CalDAVHelper(val context: Context) {
     @SuppressLint("MissingPermission")
     private fun fetchCalDAVCalendarEvents(
         calendar: CalDAVCalendar,
-        eventTypeId: Long,
+        localCalendarId: Long,
         showToasts: Boolean,
     ) {
         val calendarId = calendar.id
@@ -242,7 +244,7 @@ class CalDAVHelper(val context: Context) {
             val attendees = getCalDAVEventAttendees(id, calendar)
             val accessLevel = cursor.getIntValue(Events.ACCESS_LEVEL)
             val availability = cursor.getIntValue(Events.AVAILABILITY)
-            val status = cursor.getIntValue(Events.STATUS)
+            val status = cursor.getIntValueOrNull(Events.STATUS) ?: Events.STATUS_CONFIRMED
             val color = cursor.getIntValueOrNull(Events.EVENT_COLOR) ?: 0
 
             if (endTS == 0L) {
@@ -280,7 +282,7 @@ class CalDAVHelper(val context: Context) {
                 importId = importId,
                 timeZone = eventTimeZone,
                 flags = allDay,
-                eventType = eventTypeId,
+                calendarId = localCalendarId,
                 source = source,
                 accessLevel = accessLevel,
                 availability = availability,
@@ -307,7 +309,8 @@ class CalDAVHelper(val context: Context) {
                             event = parentEvent,
                             addToCalDAV = false,
                             showToasts = false,
-                            enableEventType = false
+                            enableCalendar = false,
+                            updateWidgets = false
                         )
                     }
 
@@ -322,13 +325,18 @@ class CalDAVHelper(val context: Context) {
                             event = event,
                             addToCalDAV = false,
                             showToasts = false,
-                            enableEventType = false
+                            enableCalendar = false,
+                            updateWidgets = false
                         )
                     } else {
                         // delete the deleted exception event from local db
                         val storedEventId = context.eventsDB.getEventIdWithImportId(importId)
                         if (storedEventId != null) {
-                            eventsHelper.deleteEvent(storedEventId, true)
+                            eventsHelper.deleteEvent(
+                                id = storedEventId,
+                                deleteFromCalDAV = true,
+                                updateWidgets = false
+                            )
                         }
                     }
 
@@ -378,7 +386,8 @@ class CalDAVHelper(val context: Context) {
                         event = event,
                         updateAtCalDAV = false,
                         showToasts = false,
-                        enableEventType = false
+                        enableCalendar = false,
+                        updateWidgets = false
                     )
                 }
             } else {
@@ -388,7 +397,8 @@ class CalDAVHelper(val context: Context) {
                         event = event,
                         addToCalDAV = false,
                         showToasts = false,
-                        enableEventType = false
+                        enableCalendar = false,
+                        updateWidgets = false
                     )
                 }
             }
@@ -404,13 +414,17 @@ class CalDAVHelper(val context: Context) {
             }
         }
 
-        eventsHelper.deleteEvents(eventIdsToDelete.toMutableList(), false)
+        eventsHelper.deleteEvents(
+            ids = eventIdsToDelete.toMutableList(),
+            deleteFromCalDAV = false,
+            updateWidgets = false
+        )
     }
 
     @SuppressLint("MissingPermission")
-    fun insertCalDAVEvent(event: Event) {
+    fun insertCalDAVEvent(event: Event, originalInstanceTime: Long? = null) {
         val uri = Events.CONTENT_URI
-        val values = fillEventContentValues(event)
+        val values = fillEventContentValues(event, originalInstanceTime)
         val newUri = context.contentResolver.insert(uri, values)
 
         val calendarId = event.getCalDAVCalendarId()
@@ -465,7 +479,15 @@ class CalDAVHelper(val context: Context) {
                 put(Attendees.ATTENDEE_NAME, it.name)
                 put(Attendees.ATTENDEE_EMAIL, it.email)
                 put(Attendees.ATTENDEE_STATUS, it.status)
-                put(Attendees.ATTENDEE_RELATIONSHIP, it.relationship)
+                put(
+                    Attendees.ATTENDEE_RELATIONSHIP,
+                    if (it.relationship == Attendees.RELATIONSHIP_ORGANIZER) {
+                        it.relationship
+                    } else {
+                        Attendees.RELATIONSHIP_ATTENDEE
+                    }
+                )
+                put(Attendees.ATTENDEE_TYPE, Attendees.TYPE_REQUIRED)
                 put(Attendees.EVENT_ID, event.getCalDAVEventId())
             }
 
@@ -485,7 +507,10 @@ class CalDAVHelper(val context: Context) {
         )
     }
 
-    private fun fillEventContentValues(event: Event): ContentValues {
+    private fun fillEventContentValues(
+        event: Event,
+        originalInstanceTime: Long? = null
+    ): ContentValues {
         val calendarId = event.getCalDAVCalendarId()
         return ContentValues().apply {
             put(Events.CALENDAR_ID, calendarId)
@@ -499,8 +524,8 @@ class CalDAVHelper(val context: Context) {
             if (event.color == 0) {
                 put(Events.EVENT_COLOR_KEY, "")
             } else {
-                val eventType = eventsHelper.getEventTypeWithCalDAVCalendarId(calendarId)!!
-                val colors = getAvailableCalDAVCalendarColors(eventType, Colors.TYPE_EVENT)
+                val calendar = eventsHelper.getCalendarWithCalDAVCalendarId(calendarId)!!
+                val colors = getAvailableCalDAVCalendarColors(calendar, Colors.TYPE_EVENT)
                 put(Events.EVENT_COLOR_KEY, colors[event.color])
             }
 
@@ -519,14 +544,14 @@ class CalDAVHelper(val context: Context) {
             }
 
             val parentEventId = event.parentId
-            if (parentEventId != 0L) {
+            if (parentEventId != 0L && originalInstanceTime != null) {
                 val parentEvent = context.eventsDB.getEventWithId(parentEventId) ?: return@apply
                 val isParentAllDay = parentEvent.getIsAllDay()
                 // original instance time must be in UTC when the parent is an all-day event
-                val originalInstanceTS = if (isParentAllDay && !event.getIsAllDay()) {
-                    Formatter.getShiftedUtcTS(event.startTS)
+                val originalInstanceTS = if (isParentAllDay) {
+                    Formatter.getShiftedUtcTS(originalInstanceTime)
                 } else {
-                    event.startTS
+                    originalInstanceTime
                 }
                 put(Events.ORIGINAL_ID, parentEvent.getCalDAVEventId())
                 put(Events.ORIGINAL_INSTANCE_TIME, originalInstanceTS * 1000L)
@@ -667,7 +692,7 @@ class CalDAVHelper(val context: Context) {
                     email = email,
                     status = cursor.getIntValue(Attendees.ATTENDEE_STATUS),
                     photoUri = "",
-                    isMe = email == calendar.ownerName,
+                    isMe = email != "" && email == calendar.ownerName,
                     relationship = cursor.getIntValue(Attendees.ATTENDEE_RELATIONSHIP)
                 )
             attendees.add(attendee)

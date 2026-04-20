@@ -1,16 +1,14 @@
 package com.goodwy.calendar.activities
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.app.TimePickerDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.media.AudioManager
 import android.media.RingtoneManager
 import android.os.Bundle
+import android.view.Menu
 import android.widget.Toast
-import androidx.lifecycle.flowWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import com.goodwy.calendar.BuildConfig
 import com.google.android.material.timepicker.MaterialTimePicker
 import com.google.android.material.timepicker.TimeFormat
@@ -19,18 +17,15 @@ import com.goodwy.calendar.databinding.ActivitySettingsBinding
 import com.goodwy.calendar.dialogs.*
 import com.goodwy.calendar.extensions.*
 import com.goodwy.calendar.helpers.*
-import com.goodwy.calendar.models.EventType
+import com.goodwy.calendar.models.CalendarEntity
 import com.goodwy.commons.dialogs.*
 import com.goodwy.commons.extensions.*
+import com.goodwy.commons.extensions.toInt
 import com.goodwy.commons.helpers.*
-import com.goodwy.commons.helpers.rustore.RuStoreHelper
-import com.goodwy.commons.helpers.rustore.model.StartPurchasesEvent
 import com.goodwy.commons.models.AlarmSound
 import com.goodwy.commons.models.RadioItem
-import kotlinx.coroutines.launch
 import org.joda.time.DateTime
 import org.joda.time.DateTimeConstants
-import ru.rustore.sdk.core.feature.model.FeatureAvailabilityResult
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -40,16 +35,18 @@ import java.util.Locale
 import kotlin.system.exitProcess
 
 class SettingsActivity : SimpleActivity() {
-    private val GET_RINGTONE_URI = 1
-    private val PICK_SETTINGS_IMPORT_SOURCE_INTENT = 2
-    private val PICK_EVENTS_IMPORT_SOURCE_INTENT = 3
-    private val PICK_EVENTS_EXPORT_FILE_INTENT = 4
+    companion object {
+        private const val GET_RINGTONE_URI = 1
+        private const val PICK_SETTINGS_IMPORT_SOURCE_INTENT = 2
+        private const val PICK_EVENTS_IMPORT_SOURCE_INTENT = 3
+        private const val PICK_EVENTS_EXPORT_FILE_INTENT = 4
+    }
 
     private var mStoredPrimaryColor = 0
-    private var eventTypesToExport = listOf<Long>()
+    private var calendarsToExport = listOf<Long>()
 
-    private val purchaseHelper = PurchaseHelper(this)
-    private var ruStoreHelper: RuStoreHelper? = null
+    private val binding by viewBinding(ActivitySettingsBinding::inflate)
+
     private val productIdX1 = BuildConfig.PRODUCT_ID_X1
     private val productIdX2 = BuildConfig.PRODUCT_ID_X2
     private val productIdX3 = BuildConfig.PRODUCT_ID_X3
@@ -59,87 +56,42 @@ class SettingsActivity : SimpleActivity() {
     private val subscriptionYearIdX1 = BuildConfig.SUBSCRIPTION_YEAR_ID_X1
     private val subscriptionYearIdX2 = BuildConfig.SUBSCRIPTION_YEAR_ID_X2
     private val subscriptionYearIdX3 = BuildConfig.SUBSCRIPTION_YEAR_ID_X3
-    private var ruStoreIsConnected = false
-
-    private val binding by viewBinding(ActivitySettingsBinding::inflate)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        isMaterialActivity = true
+        useOverflowIcon = false
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
+        setupOptionsMenu()
         mStoredPrimaryColor = getProperPrimaryColor()
 
-        updateMaterialActivityViews(binding.settingsCoordinator, binding.settingsHolder, useTransparentNavigation = true, useTopSearchMenu = false)
-        setupMaterialScrollListener(binding.settingsNestedScrollview, binding.settingsToolbar)
+//        setupEdgeToEdge(padBottomSystem = listOf(settingsNestedScrollview))
+        setupMaterialScrollListener(binding.settingsNestedScrollview, binding.settingsAppbar)
 
-        if (isPlayStoreInstalled()) {
-            //PlayStore
-            purchaseHelper.initBillingClient()
-            val iapList: ArrayList<String> = arrayListOf(productIdX1, productIdX2, productIdX3)
-            val subList: ArrayList<String> = arrayListOf(subscriptionIdX1, subscriptionIdX2, subscriptionIdX3, subscriptionYearIdX1, subscriptionYearIdX2, subscriptionYearIdX3)
-            purchaseHelper.retrieveDonation(iapList, subList)
-
-            purchaseHelper.isIapPurchased.observe(this) {
-                when (it) {
-                    is Tipping.Succeeded -> {
-                        config.isPro = true
-                        updatePro()
-                    }
-                    is Tipping.NoTips -> {
-                        config.isPro = false
-                        updatePro()
-                    }
-                    is Tipping.FailedToLoad -> {
-                    }
-                }
-            }
-
-            purchaseHelper.isSupPurchased.observe(this) {
-                when (it) {
-                    is Tipping.Succeeded -> {
-                        config.isProSubs = true
-                        updatePro()
-                    }
-                    is Tipping.NoTips -> {
-                        config.isProSubs = false
-                        updatePro()
-                    }
-                    is Tipping.FailedToLoad -> {
-                    }
-                }
-            }
-        }
-        if (isRuStoreInstalled()) {
-            //RuStore
-            ruStoreHelper = RuStoreHelper()
-
-            ruStoreHelper!!.checkPurchasesAvailability(this)
-
-            lifecycleScope.launch {
-                ruStoreHelper!!.eventStart
-                    .flowWithLifecycle(lifecycle)
-                    .collect { event ->
-                        handleEventStart(event)
-                    }
-            }
-
-            lifecycleScope.launch {
-                ruStoreHelper!!.statePurchased
-                    .flowWithLifecycle(lifecycle)
-                    .collect { state ->
-                        //update of purchased
-                        if (!state.isLoading && ruStoreIsConnected) {
-                            baseConfig.isProRuStore = state.purchases.firstOrNull() != null
-                            updatePro()
-                        }
-                    }
-            }
+        val iapList: java.util.ArrayList<String> = arrayListOf(productIdX1, productIdX2, productIdX3)
+        val subList: java.util.ArrayList<String> =
+            arrayListOf(
+                subscriptionIdX1, subscriptionIdX2, subscriptionIdX3,
+                subscriptionYearIdX1, subscriptionYearIdX2, subscriptionYearIdX3
+            )
+        val ruStoreList: java.util.ArrayList<String> =
+            arrayListOf(
+                productIdX1, productIdX2, productIdX3,
+                subscriptionIdX1, subscriptionIdX2, subscriptionIdX3,
+                subscriptionYearIdX1, subscriptionYearIdX2, subscriptionYearIdX3
+            )
+        PurchaseHelper().checkPurchase(
+            this@SettingsActivity,
+            iapList = iapList,
+            subList = subList,
+            ruStoreList = ruStoreList
+        ) { updatePro ->
+            if (updatePro) updatePro()
         }
     }
 
     override fun onResume() {
         super.onResume()
-        setupToolbar(binding.settingsToolbar, NavigationIcon.Arrow)
+        setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow)
         setupSettingItems()
     }
 
@@ -147,14 +99,14 @@ class SettingsActivity : SimpleActivity() {
         setupPurchaseThankYou()
 
         setupCustomizeColors()
-        setupMaterialDesign3()
         setupOverflowIcon()
+        setupFloatingButtonStyle()
 
         setupCustomizeNotifications()
         setupUseEnglish()
         setupLanguage()
-        setupManageEventTypes()
-        setupManageQuickFilterEventTypes()
+        setupManageCalendars()
+        setupManageQuickFilterCalendars()
         setupHourFormat()
         setupAllowCreatingTasks()
         setupStartWeekOn()
@@ -179,7 +131,7 @@ class SettingsActivity : SimpleActivity() {
         setupManageSyncedCalendars()
         setupDefaultStartTime()
         setupDefaultDuration()
-        setupDefaultEventType()
+        setupDefaultCalendar()
         setupPullToRefresh()
         setupDefaultReminder()
         setupDefaultReminder1()
@@ -240,7 +192,7 @@ class SettingsActivity : SimpleActivity() {
                 settingsMigratingHolder,
                 settingsOtherHolder
             ).forEach {
-                it.setCardBackgroundColor(getBottomNavigationBackgroundColor())
+                it.setCardBackgroundColor(getSurfaceColor())
             }
 
             arrayOf(
@@ -264,6 +216,23 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        updateMenuItemColors(menu)
+        return super.onCreateOptionsMenu(menu)
+    }
+
+    private fun setupOptionsMenu() {
+        binding.settingsToolbar.setOnMenuItemClickListener { menuItem ->
+            when (menuItem.itemId) {
+                R.id.whats_new -> {
+                    WhatsNewDialog(this@SettingsActivity, whatsNewList())
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
     override fun onPause() {
         super.onPause()
         mStoredPrimaryColor = getProperPrimaryColor()
@@ -271,7 +240,11 @@ class SettingsActivity : SimpleActivity() {
 
     override fun onStop() {
         super.onStop()
-        val reminders = sortedSetOf(config.defaultReminder1, config.defaultReminder2, config.defaultReminder3).filter { it != REMINDER_OFF }
+        val reminders = sortedSetOf(
+            config.defaultReminder1,
+            config.defaultReminder2,
+            config.defaultReminder3
+        ).filter { it != REMINDER_OFF }
         config.defaultReminder1 = reminders.getOrElse(0) { REMINDER_OFF }
         config.defaultReminder2 = reminders.getOrElse(1) { REMINDER_OFF }
         config.defaultReminder3 = reminders.getOrElse(2) { REMINDER_OFF }
@@ -282,25 +255,25 @@ class SettingsActivity : SimpleActivity() {
         if (requestCode == GET_RINGTONE_URI && resultCode == RESULT_OK && resultData != null) {
             val newAlarmSound = storeNewYourAlarmSound(resultData)
             updateReminderSound(newAlarmSound)
-        } else if (requestCode == PICK_SETTINGS_IMPORT_SOURCE_INTENT && resultCode == Activity.RESULT_OK && resultData != null && resultData.data != null) {
+        } else if (requestCode == PICK_SETTINGS_IMPORT_SOURCE_INTENT && resultCode == RESULT_OK && resultData != null && resultData.data != null) {
             val inputStream = contentResolver.openInputStream(resultData.data!!)
             parseFile(inputStream)
-        } else if (requestCode == PICK_EVENTS_IMPORT_SOURCE_INTENT && resultCode == Activity.RESULT_OK && resultData != null && resultData.data != null) {
+        } else if (requestCode == PICK_EVENTS_IMPORT_SOURCE_INTENT && resultCode == RESULT_OK && resultData != null && resultData.data != null) {
             tryImportEventsFromFile(resultData.data!!)
-        } else if (requestCode == PICK_EVENTS_EXPORT_FILE_INTENT && resultCode == Activity.RESULT_OK && resultData != null && resultData.data != null) {
+        } else if (requestCode == PICK_EVENTS_EXPORT_FILE_INTENT && resultCode == RESULT_OK && resultData != null && resultData.data != null) {
             val outputStream = contentResolver.openOutputStream(resultData.data!!)
-            exportEventsTo(eventTypesToExport, outputStream)
+            exportEventsTo(calendarsToExport, outputStream)
         }
     }
 
     private fun checkPrimaryColor() {
         if (getProperPrimaryColor() != mStoredPrimaryColor) {
             ensureBackgroundThread {
-                val eventTypes = eventsHelper.getEventTypesSync()
-                if (eventTypes.filter { it.caldavCalendarId == 0 }.size == 1) {
-                    val eventType = eventTypes.first { it.caldavCalendarId == 0 }
-                    eventType.color = getProperPrimaryColor()
-                    eventsHelper.insertOrUpdateEventTypeSync(eventType)
+                val calendars = eventsHelper.getCalendarsSync()
+                if (calendars.filter { it.caldavCalendarId == 0 }.size == 1) {
+                    val calendar = calendars.first { it.caldavCalendarId == 0 }
+                    calendar.color = getProperPrimaryColor()
+                    eventsHelper.insertOrUpdateCalendarSync(calendar)
                 }
             }
         }
@@ -313,26 +286,13 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
-    private fun setupPurchaseThankYou() {
-        binding.apply {
-            settingsPurchaseThankYouHolder.beGoneIf(isPro())
-            settingsPurchaseThankYouHolder.setOnClickListener {
-                launchPurchase()
-            }
-            moreButton.setOnClickListener {
-                launchPurchase()
-            }
-            val appDrawable = resources.getColoredDrawableWithColor(this@SettingsActivity, com.goodwy.commons.R.drawable.ic_plus_support, getProperPrimaryColor())
-            purchaseLogo.setImageDrawable(appDrawable)
-            val drawable = resources.getColoredDrawableWithColor(this@SettingsActivity, com.goodwy.commons.R.drawable.button_gray_bg, getProperPrimaryColor())
-            moreButton.background = drawable
-            moreButton.setTextColor(getProperBackgroundColor())
-            moreButton.setPadding(2, 2, 2, 2)
-        }
+    private fun setupPurchaseThankYou() = binding.apply {
+        settingsPurchaseThankYouHolder.beGoneIf(isPro())
+        settingsPurchaseThankYouHolder.onClick = { launchPurchase() }
     }
 
-    private fun setupCustomizeColors() {
-        binding.settingsCustomizeColorsHolder.setOnClickListener {
+    private fun setupCustomizeColors() = binding.apply {
+        settingsCustomizeColorsHolder.setOnClickListener {
             startCustomizationActivity(
                 showAccentColor = false,
                 productIdList = arrayListOf(productIdX1, productIdX2, productIdX3),
@@ -341,21 +301,8 @@ class SettingsActivity : SimpleActivity() {
                 subscriptionIdListRu = arrayListOf(subscriptionIdX1, subscriptionIdX2, subscriptionIdX3),
                 subscriptionYearIdList = arrayListOf(subscriptionYearIdX1, subscriptionYearIdX2, subscriptionYearIdX3),
                 subscriptionYearIdListRu = arrayListOf(subscriptionYearIdX1, subscriptionYearIdX2, subscriptionYearIdX3),
-                playStoreInstalled = isPlayStoreInstalled(),
-                ruStoreInstalled = isRuStoreInstalled(),
                 showAppIconColor = true
             )
-        }
-    }
-
-    private fun setupMaterialDesign3() {
-        binding.apply {
-            settingsMaterialDesign3.isChecked = config.materialDesign3
-            settingsMaterialDesign3Holder.setOnClickListener {
-                settingsMaterialDesign3.toggle()
-                config.materialDesign3 = settingsMaterialDesign3.isChecked
-                config.tabsChanged = true
-            }
         }
     }
 
@@ -390,15 +337,51 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
+    private fun setupFloatingButtonStyle() {
+        binding.apply {
+            settingsFloatingButtonStyle.applyColorFilter(getProperTextColor())
+            settingsFloatingButtonStyle.setImageResource(
+                if (baseConfig.materialDesign3) com.goodwy.commons.R.drawable.squircle_bg else com.goodwy.commons.R.drawable.ic_circle_filled
+            )
+            settingsFloatingButtonStyleHolder.setOnClickListener {
+                val items = arrayListOf(
+                    com.goodwy.commons.R.drawable.ic_circle_filled,
+                    com.goodwy.commons.R.drawable.squircle_bg
+                )
+
+                IconListDialog(
+                    activity = this@SettingsActivity,
+                    items = items,
+                    checkedItemId = if (baseConfig.materialDesign3) 2 else 1,
+                    defaultItemId = 1,
+                    titleId = com.goodwy.strings.R.string.floating_button_style,
+                    size = pixels(com.goodwy.commons.R.dimen.normal_icon_size).toInt(),
+                    color = getProperTextColor()
+                ) { wasPositivePressed, newValue ->
+                    if (wasPositivePressed) {
+                        if (newValue != if (baseConfig.materialDesign3) 2 else 1) {
+                            baseConfig.materialDesign3 = newValue == 2
+                            settingsFloatingButtonStyle.setImageResource(
+                                if (newValue == 2) com.goodwy.commons.R.drawable.squircle_bg else com.goodwy.commons.R.drawable.ic_circle_filled
+                            )
+                            config.needRestart = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private fun setupCustomizeNotifications() {
-        binding.settingsCustomizeNotificationsHolder.beVisibleIf(isOreoPlus())
         binding.settingsCustomizeNotificationsHolder.setOnClickListener {
             launchCustomizeNotificationsIntent()
         }
     }
 
     private fun setupUseEnglish() = binding.apply {
-        settingsUseEnglishHolder.beVisibleIf((config.wasUseEnglishToggled || Locale.getDefault().language != "en") && !isTiramisuPlus())
+        settingsUseEnglishHolder.beVisibleIf(
+            (config.wasUseEnglishToggled || Locale.getDefault().language != "en") && !isTiramisuPlus()
+        )
         settingsUseEnglish.isChecked = config.useEnglish
         settingsUseEnglishHolder.setOnClickListener {
             settingsUseEnglish.toggle()
@@ -407,28 +390,27 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
-    @SuppressLint("NewApi")
     private fun setupLanguage() = binding.apply {
         settingsLanguage.text = Locale.getDefault().displayLanguage
         settingsLanguageHolder.beVisibleIf(isTiramisuPlus())
         settingsLanguageHolder.setOnClickListener {
-            launchChangeAppLanguageIntent()
+            if (isTiramisuPlus()) launchChangeAppLanguageIntent()
         }
     }
 
-    private fun setupManageEventTypes() {
-        binding.settingsManageEventTypesHolder.setOnClickListener {
-            startActivity(Intent(this, ManageEventTypesActivity::class.java))
+    private fun setupManageCalendars() {
+        binding.settingsManageCalendarsHolder.setOnClickListener {
+            startActivity(Intent(this, ManageCalendarsActivity::class.java))
         }
     }
 
-    private fun setupManageQuickFilterEventTypes() = binding.apply {
-        settingsManageQuickFilterEventTypesHolder.setOnClickListener {
+    private fun setupManageQuickFilterCalendars() = binding.apply {
+        settingsManageQuickFilterCalendarsHolder.setOnClickListener {
             showQuickFilterPicker()
         }
 
-        eventsHelper.getEventTypes(this@SettingsActivity, false) {
-            settingsManageQuickFilterEventTypesHolder.beGoneIf(it.size < 2)
+        eventsHelper.getCalendars(this@SettingsActivity, false) {
+            settingsManageQuickFilterCalendarsHolder.beGoneIf(it.size < 2)
         }
     }
 
@@ -500,8 +482,8 @@ class SettingsActivity : SimpleActivity() {
                 config.getSyncedCalendarIdsAsList().forEach {
                     calDAVHelper.deleteCalDAVCalendarEvents(it.toLong())
                 }
-                eventTypesDB.deleteEventTypesWithCalendarId(config.getSyncedCalendarIdsAsList())
-                updateDefaultEventTypeText()
+                calendarsDB.deleteCalendarsWithCalendarIds(config.getSyncedCalendarIdsAsList())
+                updateDefaultCalendarText()
             }
         }
     }
@@ -509,10 +491,10 @@ class SettingsActivity : SimpleActivity() {
     private fun showCalendarPicker() = binding.apply {
         val oldCalendarIds = config.getSyncedCalendarIdsAsList()
 
-        SelectCalendarsDialog(this@SettingsActivity) {
+        ManageSyncedCalendarsDialog(this@SettingsActivity) {
             val newCalendarIds = config.getSyncedCalendarIdsAsList()
             if (newCalendarIds.isEmpty() && !config.caldavSync) {
-                return@SelectCalendarsDialog
+                return@ManageSyncedCalendarsDialog
             }
 
             settingsManageSyncedCalendarsHolder.beVisibleIf(newCalendarIds.isNotEmpty())
@@ -525,16 +507,23 @@ class SettingsActivity : SimpleActivity() {
 
             ensureBackgroundThread {
                 if (newCalendarIds.isNotEmpty()) {
-                    val existingEventTypeNames = eventsHelper.getEventTypesSync().map {
+                    val existingCalendarNames = eventsHelper.getCalendarsSync().map {
                         it.getDisplayTitle().lowercase(Locale.getDefault())
                     } as ArrayList<String>
 
                     getSyncedCalDAVCalendars().forEach {
                         val calendarTitle = it.getFullTitle()
-                        if (!existingEventTypeNames.contains(calendarTitle.lowercase(Locale.getDefault()))) {
-                            val eventType = EventType(null, it.displayName, it.color, it.id, it.displayName, it.accountName)
-                            existingEventTypeNames.add(calendarTitle.lowercase(Locale.getDefault()))
-                            eventsHelper.insertOrUpdateEventType(this@SettingsActivity, eventType)
+                        if (!existingCalendarNames.contains(calendarTitle.lowercase(Locale.getDefault()))) {
+                            val calendar = CalendarEntity(
+                                id = null,
+                                title = it.displayName,
+                                color = it.color,
+                                caldavCalendarId = it.id,
+                                caldavDisplayName = it.displayName,
+                                caldavEmail = it.accountName
+                            )
+                            existingCalendarNames.add(calendarTitle.lowercase(Locale.getDefault()))
+                            eventsHelper.insertOrUpdateCalendar(this@SettingsActivity, calendar)
                         }
                     }
 
@@ -550,20 +539,20 @@ class SettingsActivity : SimpleActivity() {
                 val removedCalendarIds = oldCalendarIds.filter { !newCalendarIds.contains(it) }
                 removedCalendarIds.forEach {
                     calDAVHelper.deleteCalDAVCalendarEvents(it.toLong())
-                    eventsHelper.getEventTypeWithCalDAVCalendarId(it)?.apply {
-                        eventsHelper.deleteEventTypes(arrayListOf(this), true)
+                    eventsHelper.getCalendarWithCalDAVCalendarId(it)?.apply {
+                        eventsHelper.deleteCalendars(arrayListOf(this), true)
                     }
                 }
 
-                eventTypesDB.deleteEventTypesWithCalendarId(removedCalendarIds)
-                updateDefaultEventTypeText()
+                calendarsDB.deleteCalendarsWithCalendarIds(removedCalendarIds)
+                updateDefaultCalendarText()
             }
         }
     }
 
     private fun showQuickFilterPicker() {
-        SelectEventTypesDialog(this, config.quickFilterEventTypes) {
-            config.quickFilterEventTypes = it
+        SelectCalendarsDialog(this, config.quickFilterCalendars) {
+            config.quickFilterCalendars = it
         }
     }
 
@@ -599,14 +588,23 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun setupHighlightWeekendsColor() = binding.apply {
-        settingsHighlightWeekendsColor.setFillWithStroke(config.highlightWeekendsColor, getProperBackgroundColor())
+        settingsHighlightWeekendsColor.setFillWithStroke(
+            config.highlightWeekendsColor,
+            getProperBackgroundColor()
+        )
         settingsHighlightWeekendsColorHolder.setOnClickListener {
-            ColorPickerDialog(this@SettingsActivity, config.highlightWeekendsColor, addDefaultColorButton = true,
+            ColorPickerDialog(
+                activity = this@SettingsActivity,
+                color = config.highlightWeekendsColor,
+                addDefaultColorButton = true,
                 colorDefault = resources.getColor(R.color.red_text)
             ) { wasPositivePressed, color, wasDefaultPressed ->
                 if (wasPositivePressed || wasDefaultPressed) {
                     config.highlightWeekendsColor = color
-                    settingsHighlightWeekendsColor.setFillWithStroke(color, getProperBackgroundColor())
+                    settingsHighlightWeekendsColor.setFillWithStroke(
+                        color,
+                        getProperBackgroundColor()
+                    )
                 }
             }
         }
@@ -619,7 +617,10 @@ class SettingsActivity : SimpleActivity() {
             settingsDeleteAllEventsCount.text = eventSize.toString()
         }
         settingsDeleteAllEventsHolder.setOnClickListener {
-            ConfirmationDialog(this@SettingsActivity, messageId = R.string.delete_all_events_confirmation) {
+            ConfirmationDialog(
+                activity = this@SettingsActivity,
+                messageId = R.string.delete_all_events_confirmation
+            ) {
                 eventsHelper.deleteAllEvents()
             }
         }
@@ -649,7 +650,11 @@ class SettingsActivity : SimpleActivity() {
             val items = ArrayList<RadioItem>()
             (0..16).mapTo(items) { RadioItem(it, getHoursString(it)) }
 
-            RadioGroupDialog(this@SettingsActivity, items, config.startWeeklyAt) {
+            RadioGroupDialog(
+                activity = this@SettingsActivity,
+                items = items,
+                checkedItemId = config.startWeeklyAt
+            ) {
                 config.startWeeklyAt = it as Int
                 settingsStartWeeklyAt.text = getHoursString(it)
             }
@@ -696,18 +701,18 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
+    @Deprecated("Not used on Oreo+ devices")
     private fun setupReminderSound() = binding.apply {
-        settingsReminderSoundHolder.beGoneIf(isOreoPlus())
         settingsReminderSound.text = config.reminderSoundTitle
 
         settingsReminderSoundHolder.setOnClickListener {
             SelectAlarmSoundDialog(
-                this@SettingsActivity,
-                config.reminderSoundUri,
-                config.reminderAudioStream,
-                GET_RINGTONE_URI,
-                RingtoneManager.TYPE_NOTIFICATION,
-                false,
+                activity = this@SettingsActivity,
+                currentUri = config.reminderSoundUri,
+                audioStream = config.reminderAudioStream,
+                pickAudioIntentId = GET_RINGTONE_URI,
+                type = RingtoneManager.TYPE_NOTIFICATION,
+                loopAudio = false,
                 onAlarmPicked = {
                     if (it != null) {
                         updateReminderSound(it)
@@ -722,6 +727,7 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
+    @Deprecated("Not used on Oreo+ devices")
     private fun updateReminderSound(alarmSound: AlarmSound) {
         config.reminderSoundTitle = alarmSound.title
         config.reminderSoundUri = alarmSound.uri
@@ -738,7 +744,11 @@ class SettingsActivity : SimpleActivity() {
                 RadioItem(AudioManager.STREAM_RING, getString(R.string.ring_stream))
             )
 
-            RadioGroupDialog(this@SettingsActivity, items, config.reminderAudioStream) {
+            RadioGroupDialog(
+                activity = this@SettingsActivity,
+                items = items,
+                checkedItemId = config.reminderAudioStream
+            ) {
                 config.reminderAudioStream = it as Int
                 settingsReminderAudioStream.text = getAudioStreamText()
             }
@@ -835,7 +845,11 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun toggleDefaultRemindersVisibility(show: Boolean) = binding.apply {
-        arrayOf(settingsDefaultReminder1Holder, settingsDefaultReminder2Holder, settingsDefaultReminder3Holder).forEach {
+        arrayOf(
+            settingsDefaultReminder1Holder,
+            settingsDefaultReminder2Holder,
+            settingsDefaultReminder3Holder
+        ).forEach {
             it.beVisibleIf(show)
         }
     }
@@ -888,7 +902,12 @@ class SettingsActivity : SimpleActivity() {
                 RadioItem(FONT_SIZE_EXTRA_LARGE, getString(com.goodwy.commons.R.string.extra_large))
             )
 
-            RadioGroupDialog(this@SettingsActivity, items, config.fontSize) {
+            RadioGroupDialog(
+                this@SettingsActivity,
+                items,
+                config.fontSize,
+                com.goodwy.commons.R.string.font_size
+            ) {
                 config.fontSize = it as Int
                 settingsFontSize.text = getFontSizeText()
                 updateWidgets()
@@ -898,9 +917,41 @@ class SettingsActivity : SimpleActivity() {
 
     private fun setupCustomizeWidgetColors() {
         binding.settingsWidgetColorCustomizationHolder.setOnClickListener {
-            Intent(this, WidgetListConfigureActivity::class.java).apply {
-                putExtra(IS_CUSTOMIZING_COLORS, true)
-                startActivity(this)
+//            Intent(this, WidgetListConfigureActivity::class.java).apply {
+//                putExtra(IS_CUSTOMIZING_COLORS, true)
+//                startActivity(this)
+//            }
+            val items = arrayListOf(
+                RadioItem(DAILY_VIEW, getString(R.string.daily_view)),
+                RadioItem(MONTHLY_VIEW, getString(R.string.monthly_view)),
+                RadioItem(EVENTS_LIST_VIEW, getString(R.string.simple_event_list)),
+            )
+
+            RadioGroupDialog(
+                activity = this@SettingsActivity,
+                items = items,
+                titleId = com.goodwy.commons.R.string.widgets
+            ) {
+                when (it as Int) {
+                    DAILY_VIEW -> {
+                        Intent(this, WidgetDateConfigureActivity::class.java).apply {
+                            putExtra(IS_CUSTOMIZING_COLORS, true)
+                            startActivity(this)
+                        }
+                    }
+                    MONTHLY_VIEW -> {
+                        Intent(this, WidgetMonthlyConfigureActivity::class.java).apply {
+                            putExtra(IS_CUSTOMIZING_COLORS, true)
+                            startActivity(this)
+                        }
+                    }
+                    else -> {
+                        Intent(this, WidgetListConfigureActivity::class.java).apply {
+                            putExtra(IS_CUSTOMIZING_COLORS, true)
+                            startActivity(this)
+                        }
+                    }
+                }
             }
         }
     }
@@ -918,7 +969,11 @@ class SettingsActivity : SimpleActivity() {
                 RadioItem(LAST_VIEW, getString(R.string.last_view))
             )
 
-            RadioGroupDialog(this@SettingsActivity, items, config.listWidgetViewToOpen) {
+            RadioGroupDialog(
+                activity = this@SettingsActivity,
+                items = items,
+                checkedItemId = config.listWidgetViewToOpen
+            ) {
                 config.listWidgetViewToOpen = it as Int
                 settingsListWidgetViewToOpen.text = getDefaultViewText()
                 updateWidgets()
@@ -976,15 +1031,20 @@ class SettingsActivity : SimpleActivity() {
             items.add(RadioItem(DEFAULT_START_TIME_NEXT_FULL_HOUR, getString(R.string.next_full_hour)))
             items.add(RadioItem(0, getString(R.string.other_time)))
 
-            RadioGroupDialog(this@SettingsActivity, items, currentDefaultTime) {
+            RadioGroupDialog(
+                activity = this@SettingsActivity,
+                items = items,
+                checkedItemId = currentDefaultTime
+            ) {
                 if (it as Int == DEFAULT_START_TIME_NEXT_FULL_HOUR || it == DEFAULT_START_TIME_CURRENT_TIME) {
                     config.defaultStartTime = it
                     updateDefaultStartTimeText()
                 } else {
-                    val timeListener = TimePickerDialog.OnTimeSetListener { view, hourOfDay, minute ->
-                        config.defaultStartTime = hourOfDay * 60 + minute
-                        updateDefaultStartTimeText()
-                    }
+                    val timeListener =
+                        TimePickerDialog.OnTimeSetListener { view, hourOfDay, minute ->
+                            config.defaultStartTime = hourOfDay * 60 + minute
+                            updateDefaultStartTimeText()
+                        }
 
                     val currentDateTime = DateTime.now()
 
@@ -1056,33 +1116,41 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
-    private fun setupDefaultEventType() = binding.apply {
-        updateDefaultEventTypeText()
-        settingsDefaultEventType.text = getString(R.string.last_used_one)
-        settingsDefaultEventTypeHolder.setOnClickListener {
-            SelectEventTypeDialog(this@SettingsActivity, config.defaultEventTypeId, true, false, true, true, false) {
-                config.defaultEventTypeId = it.id!!
-                updateDefaultEventTypeText()
+    private fun setupDefaultCalendar() = binding.apply {
+        updateDefaultCalendarText()
+        settingsDefaultCalendar.text = getString(R.string.last_used_one)
+        settingsDefaultCalendarHolder.setOnClickListener {
+            SelectCalendarDialog(
+                activity = this@SettingsActivity,
+                currCalendar = config.defaultCalendarId,
+                showCalDAVCalendars = true,
+                showNewCalendarOption = false,
+                addLastUsedOneAsFirstOption = true,
+                showOnlyWritable = true,
+                showManageCalendars = false
+            ) {
+                config.defaultCalendarId = it.id!!
+                updateDefaultCalendarText()
             }
         }
     }
 
-    private fun updateDefaultEventTypeText() {
-        if (config.defaultEventTypeId == -1L) {
+    private fun updateDefaultCalendarText() {
+        if (config.defaultCalendarId == -1L) {
             runOnUiThread {
-                binding.settingsDefaultEventType.text = getString(R.string.last_used_one)
+                binding.settingsDefaultCalendar.text = getString(R.string.last_used_one)
             }
         } else {
             ensureBackgroundThread {
-                val eventType = eventTypesDB.getEventTypeWithId(config.defaultEventTypeId)
-                if (eventType != null) {
-                    config.lastUsedCaldavCalendarId = eventType.caldavCalendarId
+                val calendar = calendarsDB.getCalendarWithId(config.defaultCalendarId)
+                if (calendar != null) {
+                    config.lastUsedCaldavCalendarId = calendar.caldavCalendarId
                     runOnUiThread {
-                        binding.settingsDefaultEventType.text = eventType.title
+                        binding.settingsDefaultCalendar.text = calendar.title
                     }
                 } else {
-                    config.defaultEventTypeId = -1
-                    updateDefaultEventTypeText()
+                    config.defaultCalendarId = -1
+                    updateDefaultCalendarText()
                 }
             }
         }
@@ -1095,13 +1163,15 @@ class SettingsActivity : SimpleActivity() {
         settingsEnableAutomaticBackupsHolder.setOnClickListener {
             val wasBackupDisabled = !config.autoBackup
             if (wasBackupDisabled) {
-                ManageAutomaticBackupsDialog(
-                    activity = this@SettingsActivity,
-                    onSuccess = {
-                        enableOrDisableAutomaticBackups(true)
-                        scheduleNextAutomaticBackup()
-                    }
-                )
+                maybeRequestExactAlarmPermission {
+                    ManageAutomaticBackupsDialog(
+                        activity = this@SettingsActivity,
+                        onSuccess = {
+                            enableOrDisableAutomaticBackups(true)
+                            scheduleNextAutomaticBackup()
+                        }
+                    )
+                }
             } else {
                 cancelScheduledAutomaticBackup()
                 enableOrDisableAutomaticBackups(false)
@@ -1112,12 +1182,14 @@ class SettingsActivity : SimpleActivity() {
     private fun setupManageAutomaticBackups() = binding.apply {
         settingsManageAutomaticBackupsHolder.beVisibleIf(isRPlus() && config.autoBackup)
         settingsManageAutomaticBackupsHolder.setOnClickListener {
-            ManageAutomaticBackupsDialog(
-                activity = this@SettingsActivity,
-                onSuccess = {
-                    scheduleNextAutomaticBackup()
-                }
-            )
+            maybeRequestExactAlarmPermission {
+                ManageAutomaticBackupsDialog(
+                    activity = this@SettingsActivity,
+                    onSuccess = {
+                        scheduleNextAutomaticBackup()
+                    }
+                )
+            }
         }
     }
 
@@ -1202,7 +1274,10 @@ class SettingsActivity : SimpleActivity() {
                     try {
                         startActivityForResult(this, PICK_SETTINGS_IMPORT_SOURCE_INTENT)
                     } catch (e: ActivityNotFoundException) {
-                        toast(com.goodwy.commons.R.string.system_service_disabled, Toast.LENGTH_LONG)
+                        toast(
+                            com.goodwy.commons.R.string.system_service_disabled,
+                            Toast.LENGTH_LONG
+                        )
                     } catch (e: Exception) {
                         showErrorToast(e)
                     }
@@ -1264,7 +1339,9 @@ class SettingsActivity : SimpleActivity() {
                 WIDGET_TEXT_COLOR -> config.widgetTextColor = value.toInt()
                 WEEK_NUMBERS -> config.showWeekNumbers = value.toBoolean()
                 START_WEEKLY_AT -> config.startWeeklyAt = value.toInt()
-                SHOW_MIDNIGHT_SPANNING_EVENTS_AT_TOP -> config.showMidnightSpanningEventsAtTop = value.toBoolean()
+                SHOW_MIDNIGHT_SPANNING_EVENTS_AT_TOP -> config.showMidnightSpanningEventsAtTop =
+                    value.toBoolean()
+
                 ALLOW_CUSTOMIZE_DAY_COUNT -> config.allowCustomizeDayCount = value.toBoolean()
                 START_WEEK_WITH_CURRENT_DAY -> config.startWeekWithCurrentDay = value.toBoolean()
                 VIBRATE -> config.vibrateOnReminder = value.toBoolean()
@@ -1301,7 +1378,7 @@ class SettingsActivity : SimpleActivity() {
         }
 
         runOnUiThread {
-            val msg = if (configValues.size > 0) {
+            val msg = if (configValues.isNotEmpty()) {
                 com.goodwy.commons.R.string.settings_imported_successfully
             } else {
                 com.goodwy.commons.R.string.no_entries_for_importing
@@ -1326,13 +1403,20 @@ class SettingsActivity : SimpleActivity() {
                         try {
                             startActivityForResult(this, PICK_EVENTS_IMPORT_SOURCE_INTENT)
                         } catch (e: ActivityNotFoundException) {
-                            toast(com.goodwy.commons.R.string.system_service_disabled, Toast.LENGTH_LONG)
+                            toast(
+                                com.goodwy.commons.R.string.system_service_disabled,
+                                Toast.LENGTH_LONG
+                            )
                         } catch (e: Exception) {
                             showErrorToast(e)
                         }
                     }
                 } else {
-                    PermissionRequiredDialog(this, com.goodwy.commons.R.string.allow_notifications_reminders, { openNotificationSettings() })
+                    PermissionRequiredDialog(
+                        activity = this,
+                        textId = com.goodwy.commons.R.string.allow_notifications_reminders,
+                        positiveActionCallback = { openNotificationSettings() }
+                    )
                 }
             }
         } else {
@@ -1353,8 +1437,12 @@ class SettingsActivity : SimpleActivity() {
 
     private fun tryExportEvents() {
         if (isQPlus()) {
-            ExportEventsDialog(this, config.lastExportPath, true) { file, eventTypes ->
-                eventTypesToExport = eventTypes
+            ExportEventsDialog(
+                activity = this,
+                path = config.lastExportPath,
+                hidePath = true
+            ) { file, calendars ->
+                calendarsToExport = calendars
                 hideKeyboard()
 
                 Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -1364,8 +1452,11 @@ class SettingsActivity : SimpleActivity() {
 
                     try {
                         startActivityForResult(this, PICK_EVENTS_EXPORT_FILE_INTENT)
-                    } catch (e: ActivityNotFoundException) {
-                        toast(com.goodwy.commons.R.string.system_service_disabled, Toast.LENGTH_LONG)
+                    } catch (_: ActivityNotFoundException) {
+                        toast(
+                            com.goodwy.commons.R.string.system_service_disabled,
+                            Toast.LENGTH_LONG
+                        )
                     } catch (e: Exception) {
                         showErrorToast(e)
                     }
@@ -1374,9 +1465,13 @@ class SettingsActivity : SimpleActivity() {
         } else {
             handlePermission(PERMISSION_WRITE_STORAGE) { granted ->
                 if (granted) {
-                    ExportEventsDialog(this, config.lastExportPath, false) { file, eventTypes ->
+                    ExportEventsDialog(
+                        activity = this,
+                        path = config.lastExportPath,
+                        hidePath = false
+                    ) { file, calendars ->
                         getFileOutputStream(file.toFileDirItem(this), true) {
-                            exportEventsTo(eventTypes, it)
+                            exportEventsTo(calendars, it)
                         }
                     }
                 }
@@ -1384,9 +1479,14 @@ class SettingsActivity : SimpleActivity() {
         }
     }
 
-    private fun exportEventsTo(eventTypes: List<Long>, outputStream: OutputStream?) {
+    private fun exportEventsTo(calendars: List<Long>, outputStream: OutputStream?) {
         ensureBackgroundThread {
-            val events = eventsHelper.getEventsToExport(eventTypes, config.exportEvents, config.exportTasks, config.exportPastEntries)
+            val events = eventsHelper.getEventsToExport(
+                calendars = calendars,
+                exportEvents = config.exportEvents,
+                exportTasks = config.exportTasks,
+                exportPastEntries = config.exportPastEntries
+            )
             if (events.isEmpty()) {
                 toast(com.goodwy.commons.R.string.no_entries_for_exporting)
             } else {
@@ -1406,7 +1506,7 @@ class SettingsActivity : SimpleActivity() {
     private fun setupTipJar() = binding.apply {
         settingsTipJarHolder.apply {
             beVisibleIf(isPro())
-            background.applyColorFilter(getBottomNavigationBackgroundColor().lightenColor(4))
+            background.applyColorFilter(getColoredMaterialStatusBarColor())
             setOnClickListener {
                 launchPurchase()
             }
@@ -1415,38 +1515,19 @@ class SettingsActivity : SimpleActivity() {
 
     @SuppressLint("SetTextI18n")
     private fun setupAbout() = binding.apply {
-        settingsAboutVersion.text = "Version: " + BuildConfig.VERSION_NAME
+        val flavorName = BuildConfig.FLAVOR
+        val storeDisplayName = when (flavorName) {
+            "gplay" -> "Google Play"
+            "foss" -> "FOSS"
+            "rustore" -> "RuStore"
+            else -> ""
+        }
+        val versionName = BuildConfig.VERSION_NAME
+        val fullVersionText = "Version: $versionName ($storeDisplayName)"
+
+        settingsAboutVersion.text = fullVersionText
         settingsAboutHolder.setOnClickListener {
             launchAbout()
-        }
-    }
-
-    private fun updateProducts() {
-        val productList: ArrayList<String> = arrayListOf(productIdX1, productIdX2, productIdX3, subscriptionIdX1, subscriptionIdX2, subscriptionIdX3, subscriptionYearIdX1, subscriptionYearIdX2, subscriptionYearIdX3)
-        ruStoreHelper!!.getProducts(productList)
-    }
-
-    private fun handleEventStart(event: StartPurchasesEvent) {
-        when (event) {
-            is StartPurchasesEvent.PurchasesAvailability -> {
-                when (event.availability) {
-                    is FeatureAvailabilityResult.Available -> {
-                        //Process purchases available
-                        updateProducts()
-                        ruStoreIsConnected = true
-                    }
-
-                    is FeatureAvailabilityResult.Unavailable -> {
-                        //toast(event.availability.cause.message ?: "Process purchases unavailable", Toast.LENGTH_LONG)
-                    }
-
-                    else -> {}
-                }
-            }
-
-            is StartPurchasesEvent.Error -> {
-                //toast(event.throwable.message ?: "Process unknown error", Toast.LENGTH_LONG)
-            }
         }
     }
 }

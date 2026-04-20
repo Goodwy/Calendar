@@ -5,14 +5,19 @@ import android.database.ContentObserver
 import android.os.Handler
 import android.provider.CalendarContract
 import androidx.core.app.NotificationManagerCompat
+import com.goodwy.calendar.BuildConfig
 import com.goodwy.calendar.R
 import com.goodwy.calendar.extensions.config
+import com.goodwy.calendar.extensions.getAlarmManager
 import com.goodwy.calendar.extensions.refreshCalDAVCalendars
 import com.goodwy.commons.activities.BaseSimpleActivity
 import com.goodwy.commons.dialogs.ConfirmationDialog
 import com.goodwy.commons.dialogs.PermissionRequiredDialog
 import com.goodwy.commons.extensions.openNotificationSettings
+import com.goodwy.commons.extensions.openRequestExactAlarmSettings
 import com.goodwy.commons.helpers.ensureBackgroundThread
+import com.goodwy.commons.helpers.isSPlus
+import com.goodwy.commons.helpers.isTiramisuPlus
 
 open class SimpleActivity : BaseSimpleActivity() {
     val CALDAV_REFRESH_DELAY = 3000L
@@ -65,6 +70,11 @@ open class SimpleActivity : BaseSimpleActivity() {
         }
     }
 
+    override fun onStop() {
+        unregisterObserver()
+        super.onStop()
+    }
+
     private fun unregisterObserver() {
         contentResolver.unregisterContentObserver(calDAVSyncObserver)
     }
@@ -90,6 +100,25 @@ open class SimpleActivity : BaseSimpleActivity() {
                     com.goodwy.commons.R.string.allow_notifications_reminders,
                     { openNotificationSettings() })
             }
+        }
+    }
+
+    fun maybeRequestExactAlarmPermission(callback: () -> Unit = {}) {
+        if (isSPlus() && !isTiramisuPlus()) {
+            // SCHEDULE_EXACT_ALARM *may* be revoked by users/system on Android 12
+            if (getAlarmManager().canScheduleExactAlarms()) {
+                callback()
+            } else {
+                PermissionRequiredDialog(
+                    activity = this,
+                    textId = R.string.allow_alarms_reminders,
+                    positiveActionCallback = {
+                        openRequestExactAlarmSettings(BuildConfig.APPLICATION_ID)
+                    },
+                )
+            }
+        } else {
+            callback()
         }
     }
 }

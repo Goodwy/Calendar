@@ -129,7 +129,7 @@
                 <com.goodwy.commons.views.MyTextView
                     android:id="@+id/config_text_color_label"
                     style="@style/SettingsTextLabelStyle"
-                    android:text="@string/color"/>
+                    android:text="@string/header_color"/>
 
                 <ImageView
                     android:id="@+id/config_text_color"
@@ -185,7 +185,7 @@
                 <com.goodwy.commons.views.MyMaterialSwitch
                     android:id="@+id/configWidgetName"
                     style="@style/SettingsSwitchStyle"
-                    android:text="@string/label"
+                    android:text="@string/label_g"
                     app:switchPadding="@dimen/bigger_margin"/>
             </RelativeLayout>
 
@@ -197,7 +197,7 @@
                 <com.goodwy.commons.views.MyTextView
                     android:id="@+id/configWidgetNameTextColorLabel"
                     style="@style/SettingsTextLabelStyle"
-                    android:text="@string/color"/>
+                    android:text="@string/label_color"/>
 
                 <ImageView
                     android:id="@+id/configWidgetNameTextColor"

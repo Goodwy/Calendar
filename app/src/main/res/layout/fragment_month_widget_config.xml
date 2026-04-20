@@ -63,7 +63,7 @@
 
     <include
         android:id="@+id/first_row"
-        layout="@layout/first_row"
+        layout="@layout/first_row_widget"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_below="@+id/top_value"

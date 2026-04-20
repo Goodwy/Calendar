@@ -75,26 +75,27 @@
         android:layout_alignWithParentIfMissing="true"
         android:layout_above="@+id/week_view_seekbar" />
 
-    <com.goodwy.commons.views.MySeekBar
-        android:id="@+id/week_view_seekbar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:layout_marginStart="@dimen/activity_margin"
-        android:layout_toStartOf="@+id/week_view_days_count"
-        android:paddingTop="@dimen/normal_margin"
-        android:paddingBottom="@dimen/normal_margin" />
-
     <com.goodwy.commons.views.MyTextView
         android:id="@+id/week_view_days_count"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
+        android:minWidth="60dp"
         android:layout_alignTop="@+id/week_view_seekbar"
         android:layout_alignBottom="@+id/week_view_seekbar"
-        android:layout_alignParentEnd="true"
         android:layout_marginStart="@dimen/activity_margin"
-        android:layout_marginEnd="@dimen/activity_margin"
-        android:gravity="center_vertical"
+        android:layout_marginEnd="@dimen/normal_margin"
+        android:gravity="center"
         tools:text="7 days" />
+
+    <com.goodwy.commons.views.MySeekBar
+        android:id="@+id/week_view_seekbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentBottom="true"
+        android:layout_marginEnd="@dimen/activity_margin"
+        android:layout_toEndOf="@+id/week_view_days_count"
+        android:paddingTop="@dimen/normal_margin"
+        android:paddingBottom="@dimen/normal_margin" />
 
 </RelativeLayout>

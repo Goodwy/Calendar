@@ -10,25 +10,28 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.goodwy.calendar.R
 import com.goodwy.calendar.extensions.config
 import com.goodwy.calendar.helpers.Converters
-import com.goodwy.calendar.helpers.REGULAR_EVENT_TYPE_ID
-import com.goodwy.calendar.interfaces.EventTypesDao
+import com.goodwy.calendar.helpers.LOCAL_CALENDAR_ID
+import com.goodwy.calendar.interfaces.CalendarsDao
 import com.goodwy.calendar.interfaces.EventsDao
 import com.goodwy.calendar.interfaces.TasksDao
 import com.goodwy.calendar.interfaces.WidgetsDao
+import com.goodwy.calendar.models.CalendarEntity
 import com.goodwy.calendar.models.Event
-import com.goodwy.calendar.models.EventType
 import com.goodwy.calendar.models.Task
 import com.goodwy.calendar.models.Widget
 import com.goodwy.commons.extensions.getProperPrimaryColor
 import java.util.concurrent.Executors
 
-@Database(entities = [Event::class, EventType::class, Widget::class, Task::class], version = 11)
+@Database(
+    entities = [Event::class, CalendarEntity::class, Widget::class, Task::class],
+    version = 11
+)
 @TypeConverters(Converters::class)
 abstract class EventsDatabase : RoomDatabase() {
 
     abstract fun EventsDao(): EventsDao
 
-    abstract fun EventTypesDao(): EventTypesDao
+    abstract fun CalendarsDao(): CalendarsDao
 
     abstract fun WidgetsDao(): WidgetsDao
 
@@ -41,11 +44,15 @@ abstract class EventsDatabase : RoomDatabase() {
             if (db == null) {
                 synchronized(EventsDatabase::class) {
                     if (db == null) {
-                        db = Room.databaseBuilder(context.applicationContext, EventsDatabase::class.java, "events.db")
+                        db = Room.databaseBuilder(
+                            context = context.applicationContext,
+                            klass = EventsDatabase::class.java,
+                            name = "events.db"
+                        )
                             .addCallback(object : Callback() {
                                 override fun onCreate(db: SupportSQLiteDatabase) {
                                     super.onCreate(db)
-                                    insertRegularEventType(context)
+                                    insertLocalCalendar(context)
                                 }
                             })
                             .addMigrations(MIGRATION_1_2)
@@ -70,12 +77,15 @@ abstract class EventsDatabase : RoomDatabase() {
             db = null
         }
 
-        private fun insertRegularEventType(context: Context) {
+        private fun insertLocalCalendar(context: Context) {
             Executors.newSingleThreadScheduledExecutor().execute {
-                val regularEvent = context.resources.getString(R.string.regular_event)
-                val eventType = EventType(REGULAR_EVENT_TYPE_ID, regularEvent, context.getProperPrimaryColor())
-                db!!.EventTypesDao().insertOrUpdate(eventType)
-                context.config.addDisplayEventType(REGULAR_EVENT_TYPE_ID.toString())
+                val calendar = CalendarEntity(
+                    id = LOCAL_CALENDAR_ID,
+                    title = context.resources.getString(R.string.regular_event),
+                    color = context.getProperPrimaryColor()
+                )
+                db!!.CalendarsDao().insertOrUpdate(calendar)
+                context.config.addDisplayCalendar(LOCAL_CALENDAR_ID.toString())
             }
         }
 

@@ -6,23 +6,30 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/task_toolbar"
+    <com.goodwy.commons.views.MyAppBarLayout
+        android:id="@+id/task_appbar"
         android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize"
-        android:background="@color/color_primary"
-        app:menu="@menu/menu_task"
-        app:title="@string/app_launcher_name"
-        app:titleTextAppearance="@style/AppTheme.ActionBar.TitleTextStyle" />
+        android:layout_height="wrap_content">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/task_toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/color_primary"
+            app:menu="@menu/menu_task"
+            app:title="@string/app_launcher_name"
+            app:titleTextAppearance="@style/AppTheme.ActionBar.TitleTextStyle" />
+
+    </com.goodwy.commons.views.MyAppBarLayout>
 
     <androidx.core.widget.NestedScrollView
         android:id="@+id/task_nested_scrollview"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:paddingHorizontal="@dimen/activity_padding_left_right"
-        android:layout_marginTop="?attr/actionBarSize"
         android:fillViewport="true"
-        android:scrollbars="none">
+        android:scrollbars="none"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <LinearLayout
             android:id="@+id/task_holder"
@@ -408,31 +415,44 @@
                     </RelativeLayout>
 
                     <include
-                        android:id="@+id/task_type_divider"
+                        android:id="@+id/calendar_divider"
                         layout="@layout/divider_padding"
                         android:layout_width="match_parent"
                         android:layout_height="1px"
                         android:layout_marginHorizontal="@dimen/settings_margin"/>
 
                     <RelativeLayout
-                        android:id="@+id/task_type_holder"
+                        android:id="@+id/calendar_holder"
                         style="@style/SettingsHolderStyle">
 
                         <com.goodwy.commons.views.MyTextView
-                            android:id="@+id/task_type_label"
+                            android:id="@+id/calendar_title"
                             style="@style/SettingsTextLabelStyle"
                             android:layout_alignParentStart="true"
-                            android:layout_centerVertical="true"
-                            android:layout_toStartOf="@+id/task_type"
-                            android:text="@string/event_type"/>
+                            android:layout_centerVertical="false"
+                            android:layout_toStartOf="@+id/calendar"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="@string/calendar_short"/>
 
                         <com.goodwy.commons.views.MyTextView
-                            android:id="@+id/task_type"
+                            android:id="@+id/calendar_subtitle"
+                            style="@style/SettingsTextSummaryStyle"
+                            android:layout_alignParentStart="true"
+                            android:layout_toStartOf="@+id/calendar"
+                            android:layout_below="@+id/calendar_title"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textSize="@dimen/meta_text_size"
+                            tools:text="@string/offline_never_synced" />
+
+                        <com.goodwy.commons.views.MyTextView
+                            android:id="@+id/calendar"
                             style="@style/SettingsTextValueStyle"
                             android:maxWidth="@dimen/settings_value_width_long"
                             android:layout_alignParentEnd="true"
                             android:layout_marginEnd="@dimen/settings_margin"
-                            tools:text="Meet"/>
+                            tools:text="@string/regular_event" />
                     </RelativeLayout>
                 </LinearLayout>
             </androidx.cardview.widget.CardView>

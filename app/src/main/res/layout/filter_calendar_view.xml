@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/filter_calendar_holder"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:paddingStart="@dimen/normal_margin"
+    android:paddingTop="@dimen/small_margin"
+    android:paddingEnd="@dimen/normal_margin"
+    android:paddingBottom="@dimen/small_margin">
+
+    <com.goodwy.commons.views.MyAppCompatCheckbox
+        android:id="@+id/filter_calendar_checkbox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="@dimen/medium_margin"
+        android:layout_toStartOf="@+id/filter_calendar_color"
+        android:background="@null"
+        android:clickable="false"
+        android:paddingStart="@dimen/small_margin" />
+
+    <ImageView
+        android:id="@+id/filter_calendar_color"
+        android:layout_width="@dimen/color_sample_size"
+        android:layout_height="@dimen/color_sample_size"
+        android:layout_alignParentEnd="true"
+        android:layout_centerVertical="true"
+        android:layout_marginEnd="@dimen/medium_margin"
+        android:clickable="false" />
+
+</RelativeLayout>

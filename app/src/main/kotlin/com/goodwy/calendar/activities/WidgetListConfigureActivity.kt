@@ -1,11 +1,9 @@
 package com.goodwy.calendar.activities
 
-import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import com.goodwy.calendar.R
 import com.goodwy.calendar.adapters.EventListAdapter
@@ -45,8 +43,9 @@ class WidgetListConfigureActivity : SimpleActivity() {
     public override fun onCreate(savedInstanceState: Bundle?) {
         useDynamicTheme = false
         super.onCreate(savedInstanceState)
-        setResult(Activity.RESULT_CANCELED)
+        setResult(RESULT_CANCELED)
         setContentView(binding.root)
+        setupEdgeToEdge(padTopSystem = listOf(binding.configListHolder), padBottomSystem = listOf(binding.root))
         initVariables()
 
         val isCustomizingColors = intent.extras?.getBoolean(IS_CUSTOMIZING_COLORS) ?: false
@@ -73,7 +72,7 @@ class WidgetListConfigureActivity : SimpleActivity() {
             configSecondaryTextColorHolder.setOnClickListener { pickTextColor(true) }
             configWidgetNameTextColorHolder.setOnClickListener { pickLabelColor() }
 
-            periodPickerHolder.beGoneIf(isCustomizingColors)
+//            periodPickerHolder.beGoneIf(isCustomizingColors)
 
             val primaryColor = getProperPrimaryColor()
             configBgSeekbar.setColors(mTextColor, primaryColor, primaryColor)
@@ -139,7 +138,7 @@ class WidgetListConfigureActivity : SimpleActivity() {
 
         Intent().apply {
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, mWidgetId)
-            setResult(Activity.RESULT_OK, this)
+            setResult(RESULT_OK, this)
         }
         finish()
     }

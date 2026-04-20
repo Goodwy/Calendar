@@ -1,11 +1,10 @@
-import org.jetbrains.kotlin.gradle.plugin.mpp.pm20.util.archivesName
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import org.jetbrains.kotlin.konan.properties.Properties
 import java.io.FileInputStream
 
 plugins {
     alias(libs.plugins.android)
-    alias(libs.plugins.kotlinAndroid)
     alias(libs.plugins.ksp)
     alias(libs.plugins.detekt)
 }
@@ -26,17 +25,20 @@ fun hasSigningVars(): Boolean {
         && providers.environmentVariable("SIGNING_STORE_PASSWORD").orNull != null
 }
 
+base {
+    val versionCode = project.property("VERSION_CODE").toString().toInt()
+    archivesName = "calendar-$versionCode"
+}
+
 android {
     compileSdk = project.libs.versions.app.build.compileSDKVersion.get().toInt()
 
     defaultConfig {
-        applicationId = libs.versions.app.version.appId.get()
+        applicationId = project.property("APP_ID").toString()
         minSdk = project.libs.versions.app.build.minimumSDK.get().toInt()
         targetSdk = project.libs.versions.app.build.targetSDK.get().toInt()
-        versionCode = project.libs.versions.app.version.versionCode.get().toInt()
-        versionName = project.libs.versions.app.version.versionName.get()
-        archivesName.set("calendar-$versionCode")
-        multiDexEnabled = true
+        versionCode = project.property("VERSION_CODE").toString().toInt()
+        versionName = project.property("VERSION_NAME").toString()
         vectorDrawables.useSupportLibrary = true
         buildConfigField("String", "RIGHT_APP_KEY", "\"${properties["RIGHT_APP_KEY"]}\"")
         buildConfigField("String", "PRODUCT_ID_X1", "\"${properties["PRODUCT_ID_X1"]}\"")
@@ -95,15 +97,15 @@ android {
         }
     }
 
-    flavorDimensions.add("variants")
+    flavorDimensions += "distribution"
     productFlavors {
-        register("core")
-        register("foss")
-        register("gplay")
+        create("gplay") { dimension = "distribution" }
+        create("foss") { dimension = "distribution" }
+        create("rustore") { dimension = "distribution" }
     }
 
     sourceSets {
-        getByName("main").java.srcDirs("src/main/kotlin")
+        getByName("main").java.directories.add("src/main/kotlin")
     }
 
     compileOptions {
@@ -116,17 +118,25 @@ android {
         includeInApk = false
     }
 
-    tasks.withType<KotlinCompile> {
-        kotlinOptions.jvmTarget = project.libs.versions.app.build.kotlinJVMTarget.get()
+    androidResources {
+        @Suppress("UnstableApiUsage")
+        generateLocaleConfig = true
     }
 
-    namespace = libs.versions.app.version.appId.get()
+    tasks.withType<KotlinCompile> {
+        compilerOptions.jvmTarget.set(
+            JvmTarget.fromTarget(project.libs.versions.app.build.kotlinJVMTarget.get())
+        )
+    }
+
+    namespace = project.property("APP_ID").toString()
 
     lint {
         checkReleaseBuilds = false
         abortOnError = true
-        warningsAsErrors = true
+        warningsAsErrors = false
         baseline = file("lint-baseline.xml")
+        lintConfig = rootProject.file("lint.xml")
     }
 
     bundle {
@@ -138,17 +148,23 @@ android {
 
 detekt {
     baseline = file("detekt-baseline.xml")
+    config.setFrom("$rootDir/detekt.yml")
+    buildUponDefaultConfig = true
+    allRules = false
 }
 
 dependencies {
-    implementation(libs.androidx.multidex)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.swiperefreshlayout)
     implementation(libs.androidx.print)
     implementation(libs.bundles.room)
+    implementation(libs.androidx.work.runtime.ktx)
     ksp(libs.androidx.room.compiler)
+    detektPlugins(libs.compose.detekt)
 
     //Goodwy
-    implementation(libs.goodwy.commons)
+    "gplayImplementation"(libs.goodwy.commons.gplay)
+    "fossImplementation"(libs.goodwy.commons.foss)
+    "rustoreImplementation"(libs.goodwy.commons.rustore)
     implementation(libs.rx.animation)
 }

@@ -2,7 +2,11 @@ package com.goodwy.calendar.extensions
 
 import android.accounts.Account
 import android.annotation.SuppressLint
-import android.app.*
+import android.app.AlarmManager
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.ContentResolver
@@ -13,6 +17,7 @@ import android.content.res.Resources
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Bundle
@@ -23,22 +28,24 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import androidx.annotation.DimenRes
 import androidx.core.app.NotificationCompat
+import androidx.core.net.toUri
 import androidx.print.PrintHelper
 import com.goodwy.calendar.R
+import com.goodwy.calendar.activities.CalendarPickerActivity
 import com.goodwy.calendar.activities.EventActivity
-import com.goodwy.calendar.activities.EventTypePickerActivity
 import com.goodwy.calendar.activities.SnoozeReminderActivity
 import com.goodwy.calendar.activities.TaskActivity
 import com.goodwy.calendar.databases.EventsDatabase
 import com.goodwy.calendar.databinding.DayMonthlyEventViewBinding
 import com.goodwy.calendar.helpers.*
-import com.goodwy.calendar.interfaces.EventTypesDao
+import com.goodwy.calendar.interfaces.CalendarsDao
 import com.goodwy.calendar.interfaces.EventsDao
 import com.goodwy.calendar.interfaces.TasksDao
 import com.goodwy.calendar.interfaces.WidgetsDao
 import com.goodwy.calendar.models.*
 import com.goodwy.calendar.receivers.AutomaticBackupReceiver
 import com.goodwy.calendar.receivers.CalDAVSyncReceiver
+import com.goodwy.calendar.receivers.DummyAlarmReceiver
 import com.goodwy.calendar.receivers.NotificationReceiver
 import com.goodwy.calendar.services.MarkCompletedService
 import com.goodwy.calendar.services.SnoozeService
@@ -51,20 +58,24 @@ import org.joda.time.LocalDate
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Calendar
+import java.util.concurrent.TimeUnit
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
-import androidx.core.net.toUri
 
 val Context.config: Config get() = Config.newInstance(applicationContext)
 val Context.eventsDB: EventsDao get() = EventsDatabase.getInstance(applicationContext).EventsDao()
-val Context.eventTypesDB: EventTypesDao get() = EventsDatabase.getInstance(applicationContext).EventTypesDao()
-val Context.widgetsDB: WidgetsDao get() = EventsDatabase.getInstance(applicationContext).WidgetsDao()
-val Context.completedTasksDB: TasksDao get() = EventsDatabase.getInstance(applicationContext).TasksDao()
+val Context.calendarsDB: CalendarsDao
+    get() = EventsDatabase.getInstance(applicationContext).CalendarsDao()
+val Context.widgetsDB: WidgetsDao
+    get() = EventsDatabase.getInstance(applicationContext).WidgetsDao()
+val Context.completedTasksDB: TasksDao
+    get() = EventsDatabase.getInstance(applicationContext).TasksDao()
 val Context.eventsHelper: EventsHelper get() = EventsHelper(this)
 val Context.calDAVHelper: CalDAVHelper get() = CalDAVHelper(this)
 
 fun Context.updateWidgets() {
-    val widgetIDs = AppWidgetManager.getInstance(applicationContext)?.getAppWidgetIds(ComponentName(applicationContext, MyWidgetMonthlyProvider::class.java))
+    val widgetIDs = AppWidgetManager.getInstance(applicationContext)
+        ?.getAppWidgetIds(ComponentName(applicationContext, MyWidgetMonthlyProvider::class.java))
         ?: return
     if (widgetIDs.isNotEmpty()) {
         Intent(applicationContext, MyWidgetMonthlyProvider::class.java).apply {
@@ -79,7 +90,8 @@ fun Context.updateWidgets() {
 }
 
 fun Context.updateListWidget() {
-    val widgetIDs = AppWidgetManager.getInstance(applicationContext)?.getAppWidgetIds(ComponentName(applicationContext, MyWidgetListProvider::class.java))
+    val widgetIDs = AppWidgetManager.getInstance(applicationContext)
+        ?.getAppWidgetIds(ComponentName(applicationContext, MyWidgetListProvider::class.java))
         ?: return
 
     if (widgetIDs.isNotEmpty()) {
@@ -89,11 +101,13 @@ fun Context.updateListWidget() {
             sendBroadcast(this)
         }
     }
-    AppWidgetManager.getInstance(applicationContext)?.notifyAppWidgetViewDataChanged(widgetIDs, R.id.widget_event_list)
+    AppWidgetManager.getInstance(applicationContext)
+        ?.notifyAppWidgetViewDataChanged(widgetIDs, R.id.widget_event_list)
 }
 
 fun Context.updateDateWidget() {
-    val widgetIDs = AppWidgetManager.getInstance(applicationContext)?.getAppWidgetIds(ComponentName(applicationContext, MyWidgetDateProvider::class.java))
+    val widgetIDs = AppWidgetManager.getInstance(applicationContext)
+        ?.getAppWidgetIds(ComponentName(applicationContext, MyWidgetDateProvider::class.java))
         ?: return
     if (widgetIDs.isNotEmpty()) {
         Intent(applicationContext, MyWidgetDateProvider::class.java).apply {
@@ -133,7 +147,11 @@ fun Context.scheduleNextEventReminder(event: Event, showToasts: Boolean) {
 
                 for (curReminder in reminderSeconds) {
                     if (curEvent.getEventStartTS() - curReminder > now) {
-                        scheduleEventIn((curEvent.getEventStartTS() - curReminder) * 1000L, curEvent, showToasts)
+                        scheduleEventIn(
+                            (curEvent.getEventStartTS() - curReminder) * 1000L,
+                            curEvent,
+                            showToasts
+                        )
                         return@getEvents
                     }
                 }
@@ -158,7 +176,10 @@ fun Context.scheduleEventIn(notifyAtMillis: Long, event: Event, showToasts: Bool
     val newNotifyAtMillis = notifyAtMillis + 1000
     if (showToasts) {
         val secondsTillNotification = (newNotifyAtMillis - now) / 1000
-        val msg = String.format(getString(com.goodwy.commons.R.string.time_remaining), formatSecondsToTimeString(secondsTillNotification.toInt()))
+        val msg = String.format(
+            getString(com.goodwy.commons.R.string.time_remaining),
+            formatSecondsToTimeString(secondsTillNotification.toInt())
+        )
         toast(msg)
     }
 
@@ -175,17 +196,32 @@ fun Context.getNotificationIntent(event: Event): PendingIntent {
     val intent = Intent(this, NotificationReceiver::class.java)
     intent.putExtra(EVENT_ID, event.id)
     intent.putExtra(EVENT_OCCURRENCE_TS, event.startTS)
-    return PendingIntent.getBroadcast(this, event.id!!.toInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    return PendingIntent.getBroadcast(
+        this,
+        event.id!!.toInt(),
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 }
 
 fun Context.cancelPendingIntent(id: Long) {
     val intent = Intent(this, NotificationReceiver::class.java)
-    PendingIntent.getBroadcast(this, id.toInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE).cancel()
+    PendingIntent.getBroadcast(
+        this,
+        id.toInt(),
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    ).cancel()
 }
 
 fun Context.getAutomaticBackupIntent(): PendingIntent {
     val intent = Intent(this, AutomaticBackupReceiver::class.java)
-    return PendingIntent.getBroadcast(this, AUTOMATIC_BACKUP_REQUEST_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    return PendingIntent.getBroadcast(
+        this,
+        AUTOMATIC_BACKUP_REQUEST_CODE,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 }
 
 fun Context.scheduleNextAutomaticBackup() {
@@ -215,7 +251,7 @@ fun Context.backupEventsAndTasks() {
     ensureBackgroundThread {
         val config = config
         val events = eventsHelper.getEventsToExport(
-            eventTypes = config.autoBackupEventTypes.map { it.toLong() } as ArrayList<Long>,
+            calendars = config.autoBackupCalendars.map { it.toLong() } as ArrayList<Long>,
             exportEvents = config.autoBackupEvents,
             exportTasks = config.autoBackupTasks,
             exportPastEntries = config.autoBackupPastEntries
@@ -255,7 +291,8 @@ fun Context.backupEventsAndTasks() {
                 if (!getDoesFilePathExist(exportFilePath)) {
                     createSAFFileSdk30(exportFilePath)
                 }
-                applicationContext.contentResolver.openOutputStream(exportFileUri, "wt") ?: FileOutputStream(exportFile)
+                applicationContext.contentResolver.openOutputStream(exportFileUri, "wt")
+                    ?: FileOutputStream(exportFile)
             } else {
                 var num = 0
                 while (getDoesFilePathExist(exportFilePath) && !exportFile.canWrite()) {
@@ -296,16 +333,36 @@ fun Context.getRepetitionText(seconds: Int) = when (seconds) {
     YEAR -> getString(R.string.yearly)
     else -> {
         when {
-            seconds % YEAR == 0 -> resources.getQuantityString(com.goodwy.commons.R.plurals.years, seconds / YEAR, seconds / YEAR)
-            seconds % MONTH == 0 -> resources.getQuantityString(com.goodwy.commons.R.plurals.months, seconds / MONTH, seconds / MONTH)
-            seconds % WEEK == 0 -> resources.getQuantityString(com.goodwy.commons.R.plurals.weeks, seconds / WEEK, seconds / WEEK)
-            else -> resources.getQuantityString(com.goodwy.commons.R.plurals.days, seconds / DAY, seconds / DAY)
+            seconds % YEAR == 0 -> resources.getQuantityString(
+                com.goodwy.commons.R.plurals.years,
+                seconds / YEAR,
+                seconds / YEAR
+            )
+
+            seconds % MONTH == 0 -> resources.getQuantityString(
+                com.goodwy.commons.R.plurals.months,
+                seconds / MONTH,
+                seconds / MONTH
+            )
+
+            seconds % WEEK == 0 -> resources.getQuantityString(
+                com.goodwy.commons.R.plurals.weeks,
+                seconds / WEEK,
+                seconds / WEEK
+            )
+
+            else -> resources.getQuantityString(
+                com.goodwy.commons.R.plurals.days,
+                seconds / DAY,
+                seconds / DAY
+            )
         }
     }
 }
 
 fun Context.notifyRunningEvents() {
     eventsHelper.getRunningEventsOrTasks()
+        .filter { !it.isAttendeeInviteDeclined() }
         .filter { it.getReminders().any { reminder -> reminder.type == REMINDER_NOTIFICATION } }
         .forEach {
             notifyEvent(it)
@@ -316,14 +373,25 @@ fun Context.notifyEvent(originalEvent: Event) {
     var event = originalEvent.copy()
     val currentSeconds = getNowSeconds()
 
-    var eventStartTS = if (event.getIsAllDay()) Formatter.getDayStartTS(Formatter.getDayCodeFromTS(event.startTS)) else event.startTS
+    var eventStartTS =
+        if (event.getIsAllDay()) Formatter.getDayStartTS(Formatter.getDayCodeFromTS(event.startTS)) else event.startTS
     // make sure refer to the proper repeatable event instance with "Tomorrow", or the specific date
     if (event.repeatInterval != 0 && eventStartTS - event.reminder1Minutes * 60 < currentSeconds) {
-        val events = eventsHelper.getRepeatableEventsFor(currentSeconds - WEEK_SECONDS, currentSeconds + YEAR_SECONDS, event.id!!)
+        val events = eventsHelper.getRepeatableEventsFor(
+            currentSeconds - WEEK_SECONDS,
+            currentSeconds + YEAR_SECONDS,
+            event.id!!
+        )
         for (currEvent in events) {
-            eventStartTS = if (currEvent.getIsAllDay()) Formatter.getDayStartTS(Formatter.getDayCodeFromTS(currEvent.startTS)) else currEvent.startTS
+            eventStartTS = if (currEvent.getIsAllDay()) Formatter.getDayStartTS(
+                Formatter.getDayCodeFromTS(currEvent.startTS)
+            ) else currEvent.startTS
             val firstReminderMinutes =
-                arrayOf(currEvent.reminder3Minutes, currEvent.reminder2Minutes, currEvent.reminder1Minutes).filter { it != REMINDER_OFF }.max()
+                arrayOf(
+                    currEvent.reminder3Minutes,
+                    currEvent.reminder2Minutes,
+                    currEvent.reminder1Minutes
+                ).filter { it != REMINDER_OFF }.max()
             if (eventStartTS - firstReminderMinutes * 60 > currentSeconds) {
                 break
             }
@@ -343,13 +411,17 @@ fun Context.notifyEvent(originalEvent: Event) {
         else -> "${Formatter.getDateFromCode(this, Formatter.getDayCodeFromTS(event.startTS))},"
     }
 
-    val timeRange = if (event.getIsAllDay()) getString(R.string.all_day) else getFormattedEventTime(startTime, endTime)
+    val timeRange = if (event.getIsAllDay()) getString(R.string.all_day) else getFormattedEventTime(
+        startTime,
+        endTime
+    )
     val descriptionOrLocation = if (config.replaceDescription) event.location else event.description
     val content = "$displayedStartDate $timeRange $descriptionOrLocation".trim()
     ensureBackgroundThread {
         if (event.isTask()) eventsHelper.updateIsTaskCompleted(event)
         val notification = getNotification(pendingIntent, event, content)
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager =
+            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         try {
             if (notification != null) {
                 notificationManager.notify(event.id!!.toInt(), notification)
@@ -360,8 +432,23 @@ fun Context.notifyEvent(originalEvent: Event) {
     }
 }
 
+fun Context.getUsageAttributeForStreamType(): Int {
+    return when (config.reminderAudioStream) {
+        AudioManager.STREAM_ALARM -> AudioAttributes.USAGE_ALARM
+        AudioManager.STREAM_SYSTEM -> AudioAttributes.USAGE_ASSISTANCE_SONIFICATION
+        AudioManager.STREAM_NOTIFICATION -> AudioAttributes.USAGE_NOTIFICATION_EVENT
+        AudioManager.STREAM_RING -> AudioAttributes.USAGE_NOTIFICATION_RINGTONE
+        else -> AudioAttributes.USAGE_NOTIFICATION_EVENT
+    }
+}
+
 @SuppressLint("NewApi")
-fun Context.getNotification(pendingIntent: PendingIntent, event: Event, content: String, publicVersion: Boolean = false): Notification? {
+fun Context.getNotification(
+    pendingIntent: PendingIntent,
+    event: Event,
+    content: String,
+    publicVersion: Boolean = false
+): Notification? {
     var soundUri = config.reminderSoundUri
     if (soundUri == SILENT) {
         soundUri = ""
@@ -373,10 +460,9 @@ fun Context.getNotification(pendingIntent: PendingIntent, event: Event, content:
     // create a new channel for every new sound uri as the new Android Oreo notification system is fundamentally broken
     if (soundUri != config.lastSoundUri || config.lastVibrateOnReminder != config.vibrateOnReminder) {
         if (!publicVersion) {
-            if (isOreoPlus()) {
-                val oldChannelId = "simple_calendar_${config.lastReminderChannel}_${config.reminderAudioStream}_${event.eventType}"
-                notificationManager.deleteNotificationChannel(oldChannelId)
-            }
+            val oldChannelId =
+                "simple_calendar_${config.lastReminderChannel}_${config.reminderAudioStream}_${event.calendarId}"
+            notificationManager.deleteNotificationChannel(oldChannelId)
         }
 
         config.lastVibrateOnReminder = config.vibrateOnReminder
@@ -384,33 +470,32 @@ fun Context.getNotification(pendingIntent: PendingIntent, event: Event, content:
         config.lastSoundUri = soundUri
     }
 
-    val channelId = "simple_calendar_${config.lastReminderChannel}_${config.reminderAudioStream}_${event.eventType}"
-    if (isOreoPlus()) {
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ALARM)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .setLegacyStreamType(config.reminderAudioStream)
-            .build()
+    val channelId =
+        "simple_calendar_${config.lastReminderChannel}_${config.reminderAudioStream}_${event.calendarId}"
+    val audioAttributes = AudioAttributes.Builder()
+        .setUsage(getUsageAttributeForStreamType())
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build()
 
-        val name = eventTypesDB.getEventTypeWithId(event.eventType)?.getDisplayTitle()
-        val importance = NotificationManager.IMPORTANCE_HIGH
-        NotificationChannel(channelId, name, importance).apply {
-            setBypassDnd(true)
-            enableLights(true)
-            lightColor = event.color
-            enableVibration(config.vibrateOnReminder)
-            setSound(soundUri.toUri(), audioAttributes)
-            try {
-                notificationManager.createNotificationChannel(this)
-            } catch (e: Exception) {
-                showErrorToast(e)
-                return null
-            }
+    val name = calendarsDB.getCalendarWithId(event.calendarId)?.getDisplayTitle()
+    val importance = NotificationManager.IMPORTANCE_HIGH
+    NotificationChannel(channelId, name, importance).apply {
+        setBypassDnd(true)
+        enableLights(true)
+        lightColor = event.color
+        enableVibration(config.vibrateOnReminder)
+        setSound(soundUri.toUri(), audioAttributes)
+        try {
+            notificationManager.createNotificationChannel(this)
+        } catch (e: Exception) {
+            showErrorToast(e)
+            return null
         }
     }
 
     val contentTitle = if (publicVersion) resources.getString(R.string.app_name_g) else event.title
-    val contentText = if (publicVersion) resources.getString(R.string.public_event_notification_text) else content
+    val contentText =
+        if (publicVersion) resources.getString(R.string.public_event_notification_text) else content
 
     val builder = NotificationCompat.Builder(this, channelId)
         .setContentTitle(contentTitle)
@@ -422,11 +507,14 @@ fun Context.getNotification(pendingIntent: PendingIntent, event: Event, content:
         .setDefaults(Notification.DEFAULT_LIGHTS)
         .setCategory(Notification.CATEGORY_EVENT)
         .setAutoCancel(true)
-        .setSound(soundUri.toUri(), config.reminderAudioStream)
         .setChannelId(channelId)
         .apply {
             if (event.isTask() && !event.isTaskCompleted()) {
-                addAction(R.drawable.ic_task_vector, getString(R.string.mark_completed), getMarkCompletedPendingIntent(this@getNotification, event))
+                addAction(
+                    R.drawable.ic_task_vector,
+                    getString(R.string.mark_completed),
+                    getMarkCompletedPendingIntent(this@getNotification, event)
+                )
             }
             addAction(
                 R.drawable.ic_snooze_vector,
@@ -454,24 +542,41 @@ fun Context.getNotification(pendingIntent: PendingIntent, event: Event, content:
     return notification
 }
 
-private fun getFormattedEventTime(startTime: String, endTime: String) = if (startTime == endTime) startTime else "$startTime \u2013 $endTime"
+private fun getFormattedEventTime(startTime: String, endTime: String) =
+    if (startTime == endTime) startTime else "$startTime \u2013 $endTime"
 
 private fun getPendingIntent(context: Context, event: Event): PendingIntent {
     val activityClass = getActivityToOpen(event.isTask())
     val intent = Intent(context, activityClass)
     intent.putExtra(EVENT_ID, event.id)
     intent.putExtra(EVENT_OCCURRENCE_TS, event.startTS)
-    return PendingIntent.getActivity(context, event.id!!.toInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    return PendingIntent.getActivity(
+        context,
+        event.id!!.toInt(),
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 }
 
 private fun getSnoozePendingIntent(context: Context, event: Event): PendingIntent {
-    val snoozeClass = if (context.config.useSameSnooze) SnoozeService::class.java else SnoozeReminderActivity::class.java
+    val snoozeClass =
+        if (context.config.useSameSnooze) SnoozeService::class.java else SnoozeReminderActivity::class.java
     val intent = Intent(context, snoozeClass).setAction("Snooze")
     intent.putExtra(EVENT_ID, event.id)
     return if (context.config.useSameSnooze) {
-        PendingIntent.getService(context, event.id!!.toInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        PendingIntent.getService(
+            context,
+            event.id!!.toInt(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     } else {
-        PendingIntent.getActivity(context, event.id!!.toInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        PendingIntent.getActivity(
+            context,
+            event.id!!.toInt(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 }
 
@@ -479,19 +584,31 @@ private fun getMarkCompletedPendingIntent(context: Context, task: Event): Pendin
     val intent = Intent(context, MarkCompletedService::class.java).setAction(ACTION_MARK_COMPLETED)
     intent.putExtra(EVENT_ID, task.id)
     intent.putExtra(EVENT_OCCURRENCE_TS, task.startTS)
-    return PendingIntent.getService(context, task.id!!.toInt(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    return PendingIntent.getService(
+        context,
+        task.id!!.toInt(),
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 }
 
 fun Context.rescheduleReminder(event: Event?, minutes: Int) {
     if (event != null) {
         cancelPendingIntent(event.id!!)
-        applicationContext.scheduleEventIn(System.currentTimeMillis() + minutes * 60000, event, false)
+        applicationContext.scheduleEventIn(
+            System.currentTimeMillis() + minutes * 60000,
+            event,
+            false
+        )
         cancelNotification(event.id!!)
     }
 }
 
 // if the default event start time is set to "Next full hour" and the event is created before midnight, it could change the day
-fun Context.launchNewEventIntent(dayCode: String = Formatter.getTodayCode(), allowChangingDay: Boolean = false) {
+fun Context.launchNewEventIntent(
+    dayCode: String = Formatter.getTodayCode(),
+    allowChangingDay: Boolean = false
+) {
     Intent(applicationContext, EventActivity::class.java).apply {
         putExtra(NEW_EVENT_START_TS, getNewEventTimestampFromCode(dayCode, allowChangingDay))
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -500,7 +617,10 @@ fun Context.launchNewEventIntent(dayCode: String = Formatter.getTodayCode(), all
 }
 
 // if the default start time is set to "Next full hour" and the task is created before midnight, it could change the day
-fun Context.launchNewTaskIntent(dayCode: String = Formatter.getTodayCode(), allowChangingDay: Boolean = false) {
+fun Context.launchNewTaskIntent(
+    dayCode: String = Formatter.getTodayCode(),
+    allowChangingDay: Boolean = false
+) {
     Intent(applicationContext, TaskActivity::class.java).apply {
         putExtra(NEW_EVENT_START_TS, getNewEventTimestampFromCode(dayCode, allowChangingDay))
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -510,7 +630,7 @@ fun Context.launchNewTaskIntent(dayCode: String = Formatter.getTodayCode(), allo
 
 fun Context.launchNewEventOrTaskActivity() {
     if (config.allowCreatingTasks) {
-        Intent(this, EventTypePickerActivity::class.java).apply {
+        Intent(this, CalendarPickerActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(this)
         }
@@ -524,7 +644,8 @@ fun Context.getNewEventTimestampFromCode(dayCode: String, allowChangingDay: Bool
     val defaultStartTime = config.defaultStartTime
     val currHour = calendar.get(Calendar.HOUR_OF_DAY)
     var dateTime = Formatter.getLocalDateTimeFromCode(dayCode).withHourOfDay(currHour)
-    var newDateTime = dateTime.plusHours(1).withMinuteOfHour(0).withSecondOfMinute(0).withMillisOfSecond(0)
+    var newDateTime =
+        dateTime.plusHours(1).withMinuteOfHour(0).withSecondOfMinute(0).withMillisOfSecond(0)
     if (!allowChangingDay && dateTime.dayOfMonth() != newDateTime.dayOfMonth()) {
         newDateTime = newDateTime.minusDays(1)
     }
@@ -539,7 +660,8 @@ fun Context.getNewEventTimestampFromCode(dayCode: String, allowChangingDay: Bool
         else -> {
             val hours = defaultStartTime / 60
             val minutes = defaultStartTime % 60
-            dateTime = Formatter.getLocalDateTimeFromCode(dayCode).withHourOfDay(hours).withMinuteOfHour(minutes)
+            dateTime = Formatter.getLocalDateTimeFromCode(dayCode).withHourOfDay(hours)
+                .withMinuteOfHour(minutes)
             newDateTime = dateTime
 
             // make sure the date doesn't change
@@ -548,7 +670,8 @@ fun Context.getNewEventTimestampFromCode(dayCode: String, allowChangingDay: Bool
     }
 }
 
-fun Context.getSyncedCalDAVCalendars() = calDAVHelper.getCalDAVCalendars(config.caldavSyncedCalendarIds, false)
+fun Context.getSyncedCalDAVCalendars() =
+    calDAVHelper.getCalDAVCalendars(config.caldavSyncedCalendarIds, false)
 
 fun Context.recheckCalDAVCalendars(scheduleNextCalDAVSync: Boolean, callback: () -> Unit) {
     if (config.caldavSync) {
@@ -573,15 +696,28 @@ fun Context.scheduleCalDAVSync(activate: Boolean) {
     if (activate) {
         val syncCheckInterval = 2 * AlarmManager.INTERVAL_HOUR
         try {
-            alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + syncCheckInterval, syncCheckInterval, pendingIntent)
+            alarmManager.setRepeating(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + syncCheckInterval,
+                syncCheckInterval,
+                pendingIntent
+            )
         } catch (ignored: Exception) {
         }
     }
 }
 
 @SuppressLint("UseCompatLoadingForDrawables")
-fun Context.addDayEvents(day: DayMonthly, linearLayout: LinearLayout, res: Resources, dividerMargin: Int) {
-    val eventLayoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+fun Context.addDayEvents(
+    day: DayMonthly,
+    linearLayout: LinearLayout,
+    res: Resources,
+    dividerMargin: Int
+) {
+    val eventLayoutParams = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT
+    )
 
     day.dayEvents.sortedWith(compareBy<Event> {
         if (it.getIsAllDay()) {
@@ -626,7 +762,11 @@ fun Context.addDayEvents(day: DayMonthly, linearLayout: LinearLayout, res: Resou
     }
 }
 
-fun Context.getEventListItems(events: List<Event>, addSectionDays: Boolean = true, addSectionMonths: Boolean = true): ArrayList<ListItem> {
+fun Context.getEventListItems(
+    events: List<Event>,
+    addSectionDays: Boolean = true,
+    addSectionMonths: Boolean = true
+): ArrayList<ListItem> {
     val listItems = ArrayList<ListItem>(events.size)
     val replaceDescription = config.replaceDescription
 
@@ -739,7 +879,9 @@ fun Context.getWidgetFontSize() = when (config.fontSize) {
 }
 
 fun Context.getWidgetSmallFontSize() = getWidgetMediumFontSize() - 3f
-fun Context.getWidgetMediumFontSize() = resources.getDimension(R.dimen.day_text_size) / resources.displayMetrics.density
+fun Context.getWidgetMediumFontSize() =
+    resources.getDimension(R.dimen.day_text_size) / resources.displayMetrics.density
+
 fun Context.getWidgetLargeFontSize() = getWidgetMediumFontSize() + 3f
 fun Context.getWidgetExtraLargeFontSize() = getWidgetMediumFontSize() + 6f
 
@@ -770,7 +912,7 @@ fun Context.getFirstDayOfWeek(date: DateTime): String {
 }
 
 fun Context.getFirstDayOfWeekDt(date: DateTime): DateTime {
-    var today = date.withTimeAtStartOfDay()
+    val today = date.withTimeAtStartOfDay()
     var currentDate = today
     if (!config.startWeekWithCurrentDay) {
 
@@ -800,8 +942,20 @@ fun Context.getFirstDayOfWeekDt(date: DateTime): DateTime {
 
 // format day bits to strings like "Mon, Tue, Wed"
 fun Context.getShortDaysFromBitmask(bitMask: Int): String {
-    val dayBits = withFirstDayOfWeekToFront(listOf(MONDAY_BIT, TUESDAY_BIT, WEDNESDAY_BIT, THURSDAY_BIT, FRIDAY_BIT, SATURDAY_BIT, SUNDAY_BIT))
-    val weekDays = withFirstDayOfWeekToFront(resources.getStringArray(com.goodwy.commons.R.array.week_days_short).toList())
+    val dayBits = withFirstDayOfWeekToFront(
+        listOf(
+            MONDAY_BIT,
+            TUESDAY_BIT,
+            WEDNESDAY_BIT,
+            THURSDAY_BIT,
+            FRIDAY_BIT,
+            SATURDAY_BIT,
+            SUNDAY_BIT
+        )
+    )
+    val weekDays = withFirstDayOfWeekToFront(
+        resources.getStringArray(com.goodwy.commons.R.array.week_days_short).toList()
+    )
 
     var days = ""
     dayBits.forEachIndexed { index, bit ->
@@ -922,13 +1076,26 @@ fun Context.addImportIdsToTasks(callback: () -> Unit) {
 
 fun Context.getAlarmManager() = getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-fun Context.setExactAlarm(triggerAtMillis: Long, operation: PendingIntent, type: Int = AlarmManager.RTC_WAKEUP) {
-    val alarmManager = getAlarmManager()
+fun Context.setExactAlarm(
+    triggerAtMillis: Long,
+    operation: PendingIntent,
+    type: Int = AlarmManager.RTC_WAKEUP
+) = with(getAlarmManager()) {
     try {
-        if (isSPlus() && alarmManager.canScheduleExactAlarms() || !isSPlus()) {
-            alarmManager.setExactAndAllowWhileIdle(type, triggerAtMillis, operation)
-        } else {
-            alarmManager.setAndAllowWhileIdle(type, triggerAtMillis, operation)
+        when {
+            // USE_EXACT_ALARM *cannot* be revoked by users on Android 13+
+            isTiramisuPlus() -> setExactAndAllowWhileIdle(type, triggerAtMillis, operation)
+
+            // SCHEDULE_EXACT_ALARM *may* be revoked by users/system on Android 12
+            isSPlus() && canScheduleExactAlarms() -> {
+                setExactAndAllowWhileIdle(type, triggerAtMillis, operation)
+            }
+
+            // No special permissions are needed *before* Android 12
+            !isSPlus() -> setExactAndAllowWhileIdle(type, triggerAtMillis, operation)
+
+            // Fallback to *inexact* alarms for Android 12. This will cause delayed reminders.
+            else -> setAndAllowWhileIdle(type, triggerAtMillis, operation)
         }
     } catch (e: Exception) {
         showErrorToast(e)
@@ -947,6 +1114,28 @@ fun Context.getWeekNumberWidth(): Int {
     } else {
         0
     }
+}
+
+/**
+ * Returns true if the dummy alarm is already scheduled.
+ */
+fun Context.hasDummyAlarm(): Boolean {
+    return PendingIntent.getBroadcast(
+        this, DUMMY_ALARM_REQUEST_CODE,
+        Intent(this, DummyAlarmReceiver::class.java),
+        PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+    ) != null
+}
+
+fun Context.scheduleDummyAlarm() {
+    setExactAlarm(
+        triggerAtMillis = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(1),
+        operation = PendingIntent.getBroadcast(
+            this, DUMMY_ALARM_REQUEST_CODE,
+            Intent(this, DummyAlarmReceiver::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    )
 }
 
 fun Context.dpToPx(dp: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics)

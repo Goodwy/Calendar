@@ -1,20 +1,36 @@
 package com.goodwy.calendar.dialogs
 
+import android.annotation.SuppressLint
 import androidx.appcompat.app.AlertDialog
 import com.goodwy.calendar.R
 import com.goodwy.calendar.activities.SimpleActivity
-import com.goodwy.calendar.adapters.FilterEventTypeAdapter
+import com.goodwy.calendar.adapters.FilterCalendarAdapter
 import com.goodwy.calendar.databinding.DialogExportEventsBinding
 import com.goodwy.calendar.extensions.config
 import com.goodwy.calendar.extensions.eventsHelper
 import com.goodwy.commons.dialogs.FilePickerDialog
-import com.goodwy.commons.extensions.*
+import com.goodwy.commons.extensions.beGone
+import com.goodwy.commons.extensions.beVisible
+import com.goodwy.commons.extensions.getAlertDialogBuilder
+import com.goodwy.commons.extensions.getCurrentFormattedDateTime
+import com.goodwy.commons.extensions.getParentPath
+import com.goodwy.commons.extensions.hideKeyboard
+import com.goodwy.commons.extensions.humanizePath
+import com.goodwy.commons.extensions.internalStoragePath
+import com.goodwy.commons.extensions.isAValidFilename
+import com.goodwy.commons.extensions.setupDialogStuff
+import com.goodwy.commons.extensions.toast
+import com.goodwy.commons.extensions.value
+import com.goodwy.commons.extensions.viewBinding
 import com.goodwy.commons.helpers.ensureBackgroundThread
 import java.io.File
 
+@SuppressLint("SetTextI18n")
 class ExportEventsDialog(
-    val activity: SimpleActivity, val path: String, val hidePath: Boolean,
-    val callback: (file: File, eventTypes: ArrayList<Long>) -> Unit
+    val activity: SimpleActivity,
+    val path: String,
+    val hidePath: Boolean,
+    val callback: (file: File, calendars: ArrayList<Long>) -> Unit
 ) {
     private var realPath = path.ifEmpty { activity.internalStoragePath }
     private val config = activity.config
@@ -23,7 +39,7 @@ class ExportEventsDialog(
     init {
         binding.apply {
             exportEventsFolder.setText(activity.humanizePath(realPath))
-            exportEventsFilename.setText("${activity.getString(R.string.events)}_${activity.getCurrentFormattedDateTime()}")
+            exportEventsFilename.setText("${activity.getString(R.string.events)}_${getCurrentFormattedDateTime()}")
 
             exportEventsCheckbox.isChecked = config.exportEvents
             exportEventsCheckboxHolder.setOnClickListener {
@@ -51,11 +67,11 @@ class ExportEventsDialog(
                 }
             }
 
-            activity.eventsHelper.getEventTypes(activity, false) {
-                val eventTypes = HashSet<String>()
-                it.mapTo(eventTypes) { it.id.toString() }
+            activity.eventsHelper.getCalendars(activity, false) {
+                val calendars = HashSet<String>()
+                it.mapTo(calendars) { it.id.toString() }
 
-                exportEventsTypesList.adapter = FilterEventTypeAdapter(activity, it, eventTypes)
+                exportEventsTypesList.adapter = FilterCalendarAdapter(activity, it, calendars)
                 if (it.size > 1) {
                     exportEventsPickTypes.beVisible()
                 }
@@ -66,7 +82,11 @@ class ExportEventsDialog(
             .setPositiveButton(com.goodwy.commons.R.string.ok, null)
             .setNegativeButton(com.goodwy.commons.R.string.cancel, null)
             .apply {
-                activity.setupDialogStuff(binding.root, this, R.string.export_events) { alertDialog ->
+                activity.setupDialogStuff(
+                    view = binding.root,
+                    dialog = this,
+                    titleId = R.string.export_events
+                ) { alertDialog ->
                     alertDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val filename = binding.exportEventsFilename.value
                         when {
@@ -90,11 +110,13 @@ class ExportEventsDialog(
                                         lastExportPath = file.absolutePath.getParentPath()
                                         exportEvents = exportEventsChecked
                                         exportTasks = exportTasksChecked
-                                        exportPastEntries = binding.exportPastEventsCheckbox.isChecked
+                                        exportPastEntries =
+                                            binding.exportPastEventsCheckbox.isChecked
                                     }
 
-                                    val eventTypes = (binding.exportEventsTypesList.adapter as FilterEventTypeAdapter).getSelectedItemsList()
-                                    callback(file, eventTypes)
+                                    val calendars =
+                                        (binding.exportEventsTypesList.adapter as FilterCalendarAdapter).getSelectedItemsList()
+                                    callback(file, calendars)
                                     alertDialog.dismiss()
                                 }
                             }

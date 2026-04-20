@@ -24,14 +24,49 @@
         android:name="android.permission.USE_FINGERPRINT"
         tools:node="remove" />
 
-    <queries>
-        <package android:name="com.goodwy.contacts.debug" />
-        <package android:name="com.goodwy.contacts" />
-    </queries>
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
+        tools:node="remove" />
+
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE"
+        android:maxSdkVersion="32" />
 
     <queries>
-        <package android:name="com.goodwy.calendar.debug" />
+        <package android:name="dev.goodwy.phone.debug" />
+        <package android:name="dev.goodwy.phone" />
+        <package android:name="dev.goodwy.messages.debug" />
+        <package android:name="dev.goodwy.messages" />
+        <package android:name="dev.goodwy.contacts.debug" />
+        <package android:name="dev.goodwy.contacts" />
+        <package android:name="dev.goodwy.gallery.debug" />
+        <package android:name="dev.goodwy.gallery" />
+        <package android:name="dev.goodwy.math.debug" />
+        <package android:name="dev.goodwy.math" />
+        <package android:name="dev.goodwy.filemanager.debug" />
+        <package android:name="dev.goodwy.filemanager" />
+        <package android:name="dev.goodwy.calendar" />
+        <package android:name="dev.goodwy.calendar.debug" />
+
+        <package android:name="com.goodwy.dialer.debug" />
+        <package android:name="com.goodwy.dialer" />
+        <package android:name="com.goodwy.contacts.debug" />
+        <package android:name="com.goodwy.contacts" />
+        <package android:name="com.goodwy.smsmessenger.debug" />
+        <package android:name="com.goodwy.smsmessenger" />
+        <package android:name="com.goodwy.voicerecorder.debug" />
+        <package android:name="com.goodwy.voicerecorder" />
+        <package android:name="com.goodwy.voicerecorderfree.debug" />
+        <package android:name="com.goodwy.voicerecorderfree" />
+        <package android:name="com.goodwy.gallery.debug" />
+        <package android:name="com.goodwy.gallery" />
+        <package android:name="com.goodwy.filemanager.debug" />
+        <package android:name="com.goodwy.filemanager" />
         <package android:name="com.goodwy.calendar" />
+        <package android:name="com.goodwy.calendar.debug" />
+        <package android:name="com.goodwy.audiobook" />
+        <package android:name="com.goodwy.audiobooklite" />
+        <package android:name="com.goodwy.keyboard" />
     </queries>
 
     <uses-feature
@@ -39,15 +74,15 @@
         android:required="false" />
 
     <application
-        android:name="com.goodwy.calendar.App"
+        android:name=".App"
         android:allowBackup="true"
         android:appCategory="productivity"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_launcher_name"
-        android:localeConfig="@xml/locale_config"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        tools:replace="android:label">
 
         <activity
             android:name=".activities.SplashActivity"
@@ -201,7 +236,7 @@
         </activity>
 
         <activity
-            android:name=".activities.ManageEventTypesActivity"
+            android:name=".activities.ManageCalendarsActivity"
             android:configChanges="orientation"
             android:exported="false"
             android:label="@string/event_types"
@@ -215,7 +250,7 @@
             android:theme="@style/Theme.Transparent" />
 
         <activity
-            android:name=".activities.EventTypePickerActivity"
+            android:name=".activities.CalendarPickerActivity"
             android:configChanges="orientation"
             android:excludeFromRecents="true"
             android:exported="false"
@@ -290,19 +325,25 @@
             android:exported="false" />
 
         <receiver
-            android:name=".receivers.BootCompletedReceiver"
+            android:name=".receivers.RescheduleEventsReceiver"
             android:exported="true">
 
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 
         <receiver
             android:name=".receivers.AutomaticBackupReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".receivers.DummyAlarmReceiver"
             android:exported="false" />
 
         <provider

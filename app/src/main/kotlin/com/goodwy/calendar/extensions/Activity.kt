@@ -2,6 +2,7 @@ package com.goodwy.calendar.extensions
 
 import android.app.Activity
 import android.net.Uri
+import androidx.appcompat.content.res.AppCompatResources
 import com.goodwy.calendar.BuildConfig
 import com.goodwy.calendar.R
 import com.goodwy.calendar.activities.SimpleActivity
@@ -10,6 +11,7 @@ import com.goodwy.calendar.dialogs.ImportEventsDialog
 import com.goodwy.calendar.helpers.*
 import com.goodwy.calendar.models.Event
 import com.goodwy.commons.activities.BaseSimpleActivity
+import com.goodwy.commons.dialogs.NewAppDialog
 import com.goodwy.commons.dialogs.RadioGroupDialog
 import com.goodwy.commons.extensions.*
 import com.goodwy.commons.helpers.LICENSE_JODA
@@ -19,6 +21,7 @@ import com.goodwy.commons.models.RadioItem
 import java.io.File
 import java.io.FileOutputStream
 import java.util.TreeSet
+import kotlin.ranges.random
 
 fun BaseSimpleActivity.shareEvents(ids: List<Long>) {
     ensureBackgroundThread {
@@ -123,20 +126,44 @@ fun SimpleActivity.launchAbout() {
     val licenses = LICENSE_JODA
 
     val faqItems = arrayListOf(
-        FAQItem("${getString(R.string.faq_2_title)} ${getString(R.string.faq_2_title_extra)}", R.string.faq_2_text),
+        FAQItem(
+            title = "${getString(R.string.faq_2_title)} ${getString(R.string.faq_2_title_extra)}",
+            text = R.string.faq_2_text
+        ),
         FAQItem(R.string.faq_5_title, R.string.faq_5_text),
         FAQItem(R.string.faq_3_title, R.string.faq_3_text),
         FAQItem(R.string.faq_6_title, R.string.faq_6_text),
         FAQItem(R.string.faq_1_title, R.string.faq_1_text),
-        FAQItem(com.goodwy.commons.R.string.faq_1_title_commons, com.goodwy.commons.R.string.faq_1_text_commons),
-        FAQItem(com.goodwy.commons.R.string.faq_4_title_commons, com.goodwy.commons.R.string.faq_4_text_commons),
+        FAQItem(
+            title = com.goodwy.commons.R.string.faq_1_title_commons,
+            text = com.goodwy.commons.R.string.faq_1_text_commons
+        ),
+        FAQItem(
+            title = com.goodwy.commons.R.string.faq_4_title_commons,
+            text = com.goodwy.commons.R.string.faq_4_text_commons
+        ),
         FAQItem(R.string.faq_4_title, R.string.faq_4_text)
     )
 
     if (!resources.getBoolean(com.goodwy.commons.R.bool.hide_google_relations)) {
-        faqItems.add(FAQItem(com.goodwy.commons.R.string.faq_2_title_commons, com.goodwy.strings.R.string.faq_2_text_commons_g))
-        faqItems.add(FAQItem(com.goodwy.commons.R.string.faq_6_title_commons, com.goodwy.strings.R.string.faq_6_text_commons_g))
-        faqItems.add(FAQItem(com.goodwy.commons.R.string.faq_7_title_commons, com.goodwy.commons.R.string.faq_7_text_commons))
+        faqItems.add(
+            FAQItem(
+                title = com.goodwy.commons.R.string.faq_2_title_commons,
+                text = com.goodwy.strings.R.string.faq_2_text_commons_g
+            )
+        )
+        faqItems.add(
+            FAQItem(
+                title = com.goodwy.commons.R.string.faq_6_title_commons,
+                text = com.goodwy.strings.R.string.faq_6_text_commons_g
+            )
+        )
+        faqItems.add(
+            FAQItem(
+                title = com.goodwy.commons.R.string.faq_7_title_commons,
+                text = com.goodwy.commons.R.string.faq_7_text_commons
+            )
+        )
     }
 
     val productIdX1 = BuildConfig.PRODUCT_ID_X1
@@ -149,10 +176,21 @@ fun SimpleActivity.launchAbout() {
     val subscriptionYearIdX2 = BuildConfig.SUBSCRIPTION_YEAR_ID_X2
     val subscriptionYearIdX3 = BuildConfig.SUBSCRIPTION_YEAR_ID_X3
 
+    val flavorName = BuildConfig.FLAVOR
+    val storeDisplayName = when (flavorName) {
+        "gplay" -> "Google Play"
+        "foss" -> "FOSS"
+        "rustore" -> "RuStore"
+        else -> ""
+    }
+    val versionName = BuildConfig.VERSION_NAME
+    val fullVersionText = "$versionName ($storeDisplayName)"
+
     startAboutActivity(
         appNameId = R.string.app_name_g,
         licenseMask = licenses,
-        versionName = BuildConfig.VERSION_NAME,
+        versionName = fullVersionText,
+        flavorName = BuildConfig.FLAVOR,
         faqItems = faqItems,
         showFAQBeforeMail = true,
         productIdList= arrayListOf(productIdX1, productIdX2, productIdX3),
@@ -161,8 +199,6 @@ fun SimpleActivity.launchAbout() {
         subscriptionIdListRu = arrayListOf(subscriptionIdX1, subscriptionIdX2, subscriptionIdX3),
         subscriptionYearIdList = arrayListOf(subscriptionYearIdX1, subscriptionYearIdX2, subscriptionYearIdX3),
         subscriptionYearIdListRu = arrayListOf(subscriptionYearIdX1, subscriptionYearIdX2, subscriptionYearIdX3),
-        playStoreInstalled = isPlayStoreInstalled(),
-        ruStoreInstalled = isRuStoreInstalled()
     )
 }
 
@@ -185,7 +221,24 @@ fun SimpleActivity.launchPurchase() {
         subscriptionIdListRu = arrayListOf(subscriptionIdX1, subscriptionIdX2, subscriptionIdX3),
         subscriptionYearIdList = arrayListOf(subscriptionYearIdX1, subscriptionYearIdX2, subscriptionYearIdX3),
         subscriptionYearIdListRu = arrayListOf(subscriptionYearIdX1, subscriptionYearIdX2, subscriptionYearIdX3),
-        playStoreInstalled = isPlayStoreInstalled(),
-        ruStoreInstalled = isRuStoreInstalled()
     )
+}
+
+fun Activity.newAppRecommendation() {
+    if (resources.getBoolean(com.goodwy.commons.R.bool.is_foss)) {
+        if (!isNewApp()) {
+            if ((0..config.newAppRecommendationDialogCount).random() == 2) {
+                val packageName = "radnelac.ywdoog.ved".reversed()
+                NewAppDialog(
+                    activity = this,
+                    packageName = packageName,
+                    title = getString(com.goodwy.strings.R.string.notification_of_new_application),
+                    text = "AlRight Calendar",
+                    drawable = AppCompatResources.getDrawable(this, com.goodwy.commons.R.drawable.ic_calendar_app_new),
+                    showSubtitle = true
+                ) {
+                }
+            }
+        }
+    }
 }

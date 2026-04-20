@@ -9,7 +9,8 @@
         android:id="@+id/month_label"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_horizontal"
+        android:gravity="start"
+        android:paddingHorizontal="5dp"
         android:text="@string/january"
         android:textAllCaps="true"
         android:textSize="@dimen/normal_text_size" />

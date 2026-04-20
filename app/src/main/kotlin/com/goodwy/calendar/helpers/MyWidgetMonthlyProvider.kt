@@ -19,6 +19,7 @@ import com.goodwy.calendar.interfaces.MonthlyCalendar
 import com.goodwy.calendar.models.DayMonthly
 import com.goodwy.calendar.models.Event
 import com.goodwy.commons.extensions.*
+import com.goodwy.commons.helpers.LOWER_ALPHA
 import com.goodwy.commons.helpers.MEDIUM_ALPHA
 import org.joda.time.DateTime
 import org.joda.time.DateTimeConstants
@@ -133,7 +134,7 @@ class MyWidgetMonthlyProvider : AppWidgetProvider() {
                 secondTextColor
             }
 
-            val weakTextColor = dayTextColor.adjustAlpha(MEDIUM_ALPHA)
+            val weakTextColor = dayTextColor.adjustAlpha(LOWER_ALPHA)
             val currTextColor = if (day.isThisMonth) dayTextColor else weakTextColor
             val id = res.getIdentifier("day_$i", "id", packageName)
             views.removeAllViews(id)
@@ -146,8 +147,9 @@ class MyWidgetMonthlyProvider : AppWidgetProvider() {
             day.dayEvents.forEach {
                 val backgroundColor = it.color
                 var eventTextColor = backgroundColor.getContrastColor()
-
-                if (it.isTask() && it.isTaskCompleted() && dimCompletedTasks || !day.isThisMonth || (dimPastEvents && it.isPastEvent && !it.isTask())) {
+                val shouldDim = (it.isTask() && it.isTaskCompleted() && dimCompletedTasks)
+                    || (dimPastEvents && it.isPastEvent && !it.isTask())
+                if (shouldDim) {
                     eventTextColor = eventTextColor.adjustAlpha(MEDIUM_ALPHA)
                 }
 
@@ -172,14 +174,26 @@ class MyWidgetMonthlyProvider : AppWidgetProvider() {
 
     private fun addDayNumber(context: Context, views: RemoteViews, day: DayMonthly, secondTextColor: Int, textColor: Int, id: Int) {
         val newRemoteView = RemoteViews(context.packageName, R.layout.day_monthly_number_view).apply {
-            setText(R.id.day_monthly_number_id, day.value.toString())
-            setTextSize(R.id.day_monthly_number_id, context.getWidgetFontSize() - 5f)
+            val dayEventColor = day.dayEvents.firstOrNull()?.color
+            val widgetMonthEventsColor = context.config.widgetMonthEventsVisibility == WIDGET_MONTH_EVENTS_COLOR
+            val widgetMonthEventsBold = context.config.widgetMonthEventsVisibility == WIDGET_MONTH_EVENTS_BOLD
+            val dayColor =
+                if (widgetMonthEventsColor) dayEventColor ?: secondTextColor else secondTextColor
 
             if (day.isToday) {
+                setText(R.id.day_monthly_number_id, day.value.toString())
+                setTextSize(R.id.day_monthly_number_id, context.getWidgetFontSize() - 5f)
                 setTextColor(R.id.day_monthly_number_id, textColor.getContrastColor())
                 setViewVisibility(R.id.day_monthly_number_background, View.VISIBLE)
                 setInt(R.id.day_monthly_number_background, "setColorFilter", textColor)
+            } else if (dayEventColor != null && (widgetMonthEventsColor || widgetMonthEventsBold)) {
+                setTextViewText(R.id.day_monthly_number_id, day.value.toString().toBold())
+                setTextSize(R.id.day_monthly_number_id, context.getWidgetFontSize() - 5f)
+                setTextColor(R.id.day_monthly_number_id, dayColor)
+                setViewVisibility(R.id.day_monthly_number_background, View.GONE)
             } else {
+                setText(R.id.day_monthly_number_id, day.value.toString())
+                setTextSize(R.id.day_monthly_number_id, context.getWidgetFontSize() - 5f)
                 setTextColor(R.id.day_monthly_number_id, secondTextColor)
                 setViewVisibility(R.id.day_monthly_number_background, View.GONE)
             }
@@ -219,11 +233,12 @@ class MyWidgetMonthlyProvider : AppWidgetProvider() {
 //                val shouldGoToTodayBeVisible = currTargetDate.withTime(0, 0, 0, 0) != DateTime.now().withDayOfMonth(1).withTime(0, 0, 0, 0)
 //                views.setVisibleIf(R.id.top_go_to_today, shouldGoToTodayBeVisible)
 
-                updateDayLabels(context, views, resources, secondTextColor)
+//                updateDayLabels(context, views, resources, secondTextColor)
                 updateDays(context, views, days)
 
                 setupIntent(context, views, PREV, R.id.top_left_arrow)
                 setupIntent(context, views, NEXT, R.id.top_right_arrow)
+//                setupIntent(context, views, GO_TO_TODAY, R.id.top_go_to_today)
                 setupIntent(context, views, GO_TO_TODAY, R.id.top_value)
                 setupIntent(context, views, NEW_EVENT, R.id.top_new_event)
 
@@ -231,24 +246,32 @@ class MyWidgetMonthlyProvider : AppWidgetProvider() {
 //                setupAppOpenIntent(context, views, R.id.top_value, monthCode)
 
                 val opts = appWidgetManager.getAppWidgetOptions(it)
-                setHorizontalVisibility(context, opts, views)
+                setHorizontalVisibility(context, opts, views, resources, secondTextColor)
                 views.setVisibleIf(R.id.widget_name, context.config.showWidgetName)
                 views.setTextColor(R.id.widget_name, context.config.widgetLabelColor)
 
                 try {
                     appWidgetManager.updateAppWidget(it, views)
-                } catch (ignored: RuntimeException) {
+                } catch (_: RuntimeException) {
                 }
             }
         }
     }
 
-    private fun updateDayLabels(context: Context, views: RemoteViews, resources: Resources, textColor: Int) {
+    private fun updateDayLabels(
+        context: Context,
+        views: RemoteViews,
+        resources: Resources,
+        textColor: Int,
+        small: Boolean = false
+    ) {
         val config = context.config
         val firstDayOfWeek = config.firstDayOfWeek
         val smallerFontSize = context.getWidgetFontSize() - 5f
         val packageName = context.packageName
-        val letters = context.resources.getStringArray(com.goodwy.commons.R.array.week_day_letters)
+        val letters =
+            if (small) context.resources.getStringArray(com.goodwy.commons.R.array.week_day_letters)
+            else context.resources.getStringArray(com.goodwy.commons.R.array.week_days_short)
 
         for (i in 0..6) {
             val id = resources.getIdentifier("label_$i", "id", packageName)
@@ -273,7 +296,9 @@ class MyWidgetMonthlyProvider : AppWidgetProvider() {
     private fun setHorizontalVisibility(
         context: Context,
         opts: Bundle,
-        remoteViews: RemoteViews
+        remoteViews: RemoteViews,
+        resources: Resources,
+        textColor: Int
     ) {
         val useWidth = widgetWidth(context, opts)
         val singleButtonSize = context.dpToPxRounded(8F + 24F + 8F)
@@ -281,10 +306,12 @@ class MyWidgetMonthlyProvider : AppWidgetProvider() {
 
         remoteViews.setViewVisibility(R.id.top_left_arrow, View.VISIBLE)
         remoteViews.setViewVisibility(R.id.top_right_arrow, View.VISIBLE)
+        updateDayLabels(context, remoteViews, resources, textColor)
 
         if (summarizedItemWidth > useWidth) {
             remoteViews.setViewVisibility(R.id.top_left_arrow, View.GONE)
             remoteViews.setViewVisibility(R.id.top_right_arrow, View.GONE)
+            updateDayLabels(context, remoteViews, resources, textColor, true)
             summarizedItemWidth -= 3 * singleButtonSize
         }
     }

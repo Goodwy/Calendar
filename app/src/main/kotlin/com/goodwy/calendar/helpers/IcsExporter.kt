@@ -4,7 +4,7 @@ import android.content.Context
 import android.provider.CalendarContract.Events
 import com.goodwy.calendar.R
 import com.goodwy.calendar.extensions.calDAVHelper
-import com.goodwy.calendar.extensions.eventTypesDB
+import com.goodwy.calendar.extensions.calendarsDB
 import com.goodwy.calendar.extensions.eventsHelper
 import com.goodwy.calendar.helpers.IcsExporter.ExportResult.EXPORT_FAIL
 import com.goodwy.calendar.helpers.IcsExporter.ExportResult.EXPORT_OK
@@ -14,6 +14,7 @@ import com.goodwy.calendar.models.Event
 import com.goodwy.commons.extensions.toast
 import com.goodwy.commons.extensions.writeLn
 import com.goodwy.commons.helpers.ensureBackgroundThread
+import org.joda.time.DateTimeZone
 import java.io.BufferedWriter
 import java.io.OutputStream
 import java.io.OutputStreamWriter
@@ -93,7 +94,8 @@ class IcsExporter(private val context: Context) {
                     writeLn("$ACTION$DISPLAY")
                 } else {
                     writeLn("$ACTION$EMAIL")
-                    val attendee = calendars.firstOrNull { it.id == event.getCalDAVCalendarId() }?.accountName
+                    val attendee =
+                        calendars.firstOrNull { it.id == event.getCalDAVCalendarId() }?.accountName
                     if (attendee != null) {
                         writeLn("$ATTENDEE$MAILTO$attendee")
                     }
@@ -117,40 +119,62 @@ class IcsExporter(private val context: Context) {
         var isFirstLine = true
 
         while (index < description.length) {
-            val substring = description.substring(index, Math.min(index + MAX_LINE_LENGTH, description.length))
+            var end = index + MAX_LINE_LENGTH
+            if (end > description.length) {
+                end = description.length
+            } else {
+                // Avoid splitting surrogate pairs
+                if (Character.isHighSurrogate(description[end - 1])) {
+                    end--
+                }
+            }
+
+            val substring = description.substring(index, end)
             if (isFirstLine) {
                 out.writeLn("$DESCRIPTION_EXPORT$substring")
             } else {
-                out.writeLn("\t$substring")
+                out.writeLn(" $substring")
             }
 
             isFirstLine = false
-            index += MAX_LINE_LENGTH
+            index = end
         }
     }
 
     private fun writeEvent(writer: BufferedWriter, event: Event) {
-        val eventTypeColors = context.eventsHelper.getEventTypeColors()
+        val calendarColors = context.eventsHelper.getCalendarColors()
         with(writer) {
             writeLn(BEGIN_EVENT)
             event.title.replace("\n", "\\n").let { if (it.isNotEmpty()) writeLn("$SUMMARY:$it") }
             event.importId.let { if (it.isNotEmpty()) writeLn("$UID$it") }
-            writeLn("$CATEGORY_COLOR${context.eventTypesDB.getEventTypeWithId(event.eventType)?.color}")
-            if (event.color != 0 && event.color != eventTypeColors[event.eventType]) {
+            writeLn("$CATEGORY_COLOR${context.calendarsDB.getCalendarWithId(event.calendarId)?.color}")
+            if (event.color != 0 && event.color != calendarColors[event.calendarId]) {
                 val color = CssColors.findClosestCssColor(event.color)
                 if (color != null) {
                     writeLn("$COLOR${color}")
                 }
                 writeLn("$RIGHT_COLOR${event.color}")
             }
-            writeLn("$CATEGORIES${context.eventTypesDB.getEventTypeWithId(event.eventType)?.title}")
+            writeLn("$CATEGORIES${context.calendarsDB.getCalendarWithId(event.calendarId)?.title}")
             writeLn("$LAST_MODIFIED:${Formatter.getExportedTime(event.lastUpdated)}")
             writeLn("$TRANSP${if (event.availability == Events.AVAILABILITY_FREE) TRANSPARENT else OPAQUE}")
             event.location.let { if (it.isNotEmpty()) writeLn("$LOCATION:$it") }
 
             if (event.getIsAllDay()) {
-                writeLn("$DTSTART;$VALUE=$DATE:${Formatter.getDayCodeFromTS(event.startTS)}")
-                writeLn("$DTEND;$VALUE=$DATE:${Formatter.getDayCodeFromTS(event.endTS + TWELVE_HOURS)}")
+                val tz = try {
+                    DateTimeZone.forID(event.timeZone)
+                } catch (ignored: IllegalArgumentException) {
+                    DateTimeZone.getDefault()
+                }
+                writeLn("$DTSTART;$VALUE=$DATE:${Formatter.getDayCodeFromTS(event.startTS, tz)}")
+                writeLn(
+                    "$DTEND;$VALUE=$DATE:${
+                        Formatter.getDayCodeFromTS(
+                            event.endTS + TWELVE_HOURS,
+                            tz
+                        )
+                    }"
+                )
             } else {
                 writeLn("$DTSTART:${Formatter.getExportedTime(event.startTS * 1000L)}")
                 writeLn("$DTEND:${Formatter.getExportedTime(event.endTS * 1000L)}")
@@ -172,20 +196,20 @@ class IcsExporter(private val context: Context) {
     }
 
     private fun writeTask(writer: BufferedWriter, task: Event) {
-        val eventTypeColors = context.eventsHelper.getEventTypeColors()
+        val calendarColors = context.eventsHelper.getCalendarColors()
         with(writer) {
             writeLn(BEGIN_TASK)
             task.title.replace("\n", "\\n").let { if (it.isNotEmpty()) writeLn("$SUMMARY:$it") }
             task.importId.let { if (it.isNotEmpty()) writeLn("$UID$it") }
-            writeLn("$CATEGORY_COLOR${context.eventTypesDB.getEventTypeWithId(task.eventType)?.color}")
-            if (task.color != 0 && task.color != eventTypeColors[task.eventType]) {
+            writeLn("$CATEGORY_COLOR${context.calendarsDB.getCalendarWithId(task.calendarId)?.color}")
+            if (task.color != 0 && task.color != calendarColors[task.calendarId]) {
                 val color = CssColors.findClosestCssColor(task.color)
                 if (color != null) {
                     writeLn("$COLOR${color}")
                 }
                 writeLn("$RIGHT_COLOR${task.color}")
             }
-            writeLn("$CATEGORIES${context.eventTypesDB.getEventTypeWithId(task.eventType)?.title}")
+            writeLn("$CATEGORIES${context.calendarsDB.getCalendarWithId(task.calendarId)?.title}")
             writeLn("$LAST_MODIFIED:${Formatter.getExportedTime(task.lastUpdated)}")
             task.location.let { if (it.isNotEmpty()) writeLn("$LOCATION:$it") }
 

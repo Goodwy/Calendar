@@ -11,7 +11,7 @@ import com.goodwy.calendar.extensions.config
 import com.goodwy.calendar.extensions.isWeekendIndex
 import com.goodwy.calendar.models.DayYearly
 import com.goodwy.commons.extensions.*
-import com.goodwy.commons.helpers.HIGHER_ALPHA
+import com.goodwy.commons.helpers.FontHelper
 import com.goodwy.commons.helpers.MEDIUM_ALPHA
 
 // used for displaying months at Yearly view
@@ -63,16 +63,18 @@ class SmallMonthView(context: Context, attrs: AttributeSet, defStyle: Int) : Vie
         paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = textColor
             textSize = resources.getDimensionPixelSize(R.dimen.year_view_day_text_size).toFloat()
-            textAlign = Paint.Align.RIGHT
+            textAlign = Paint.Align.CENTER
+            typeface = FontHelper.getTypeface(context)
         }
 
         todayCirclePaint = Paint(paint)
-        todayCirclePaint.color = context.getProperPrimaryColor()//.adjustAlpha(HIGHER_ALPHA)
+        todayCirclePaint.color = context.getProperPrimaryColor()//.adjustAlpha(MEDIUM_ALPHA)
         isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+
         if (dayWidth == 0f) {
             dayWidth = if (isLandscape) {
                 width / 9f
@@ -81,18 +83,22 @@ class SmallMonthView(context: Context, attrs: AttributeSet, defStyle: Int) : Vie
             }
         }
 
+        val fm = paint.fontMetrics
+        val radius = dayWidth * 0.51f //0.41f
+
         var curId = 1 - firstDay
         for (y in 1..6) {
             for (x in 1..7) {
                 if (curId in 1..days) {
-                    if (curId == todaysId && !isPrintVersion) {
-                        val dividerConstant = 6 //if (isLandscape) 6 else 4
-                        canvas.drawCircle(x * dayWidth - dayWidth / 2, y * dayWidth - dayWidth / dividerConstant, dayWidth * 0.41f, todayCirclePaint)
-                    }
+                    val textPaint = getPaint(curId, x, highlightWeekends, curId == todaysId && !isPrintVersion)
+                    val centerX = x * dayWidth - dayWidth / 2
+                    val centerY = y * dayWidth - dayWidth / 2
+                    val baselineY = centerY - (fm.ascent + fm.descent) / 2
 
-                    val paint = getPaint(curId, x, highlightWeekends, curId == todaysId)
-                    val widthX = if (curId in 1..9) x * dayWidth - (dayWidth / 2.8f) else x * dayWidth - (dayWidth / 4)
-                    canvas.drawText(curId.toString(), widthX, y * dayWidth, paint)
+                    if (curId == todaysId && !isPrintVersion) {
+                        canvas.drawCircle(centerX, centerY, radius, todayCirclePaint)
+                    }
+                    canvas.drawText(curId.toString(), centerX, baselineY, textPaint)
                 }
                 curId++
             }
@@ -103,7 +109,7 @@ class SmallMonthView(context: Context, attrs: AttributeSet, defStyle: Int) : Vie
         val colors = mEvents?.get(curId)?.eventColors ?: HashSet()
         if (isToday) {
             val curPaint = Paint(paint)
-            curPaint.color = context.getProperPrimaryColor().getContrastColor()
+            curPaint.color = todayCirclePaint.color.getContrastColor()
             return curPaint
         } else if (colors.isNotEmpty()) {
             val curPaint = Paint(paint)
@@ -121,7 +127,7 @@ class SmallMonthView(context: Context, attrs: AttributeSet, defStyle: Int) : Vie
     fun togglePrintMode() {
         isPrintVersion = !isPrintVersion
         textColor = if (isPrintVersion) {
-            resources.getColor(com.goodwy.commons.R.color.theme_light_text_color)
+            resources.getColor(com.goodwy.commons.R.color.theme_light_text_color, null)
         } else {
             context.getProperTextColor().adjustAlpha(MEDIUM_ALPHA)
         }
@@ -130,3 +136,4 @@ class SmallMonthView(context: Context, attrs: AttributeSet, defStyle: Int) : Vie
         invalidate()
     }
 }
+

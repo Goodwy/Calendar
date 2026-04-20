@@ -243,7 +243,7 @@
     <string name="faq_4_text">Da, acceptă. În mod implicit, toate evenimentele sunt create în fusul orar curent. Dacă dorești să schimbi fusul orar al evenimentelor, mai întâi va trebui să activezi selectorul de fus orar din setările aplicației, apoi să-l schimba în ecranul Detalii despre eveniment. Acesta opțiune este dezactivată implicit, deoarece majoritatea oamenilor nu au nevoie de ea.</string>
     <string name="faq_5_title">Aplicația nu afișează nicio notificare, de ce se întâmplă asta\?</string>
     <string name="faq_5_text">Verifică bateria dispozitivului și setările pentru notificări, dacă nu există nimic care să blocheze memento-urile sau dacă aplicația este oprită în fundal. De asemenea, ai putea să arunci o privire la &lt;a href=https://dontkillmyapp.com&gt;https://dontkillmyapp.com&lt;/a&gt; pentru câteva sfaturi utile.</string>
-    <string name="faq_6_title">Cum pot modifica sau șterge un tip de eveniment existent\?</string>
+    <string name="faq_6_title">Cum pot modifica sau șterge un tip de eveniment existent?</string>
     <string name="faq_6_text">Poți face ambele lucruri în setările aplicației - Gestionează tipurile de evenimente. Trebuie doar să apeși pe cel dorit pentru a schimba eticheta și culoarea sau selectează-l prin apăsare lungă și folosește coșul de gunoi din meniul de sus pentru a-l șterge.</string>
     <string name="export_past_entries">Exportă și intrările trecute</string>
     <string name="app_launcher_name">Calendar</string>
@@ -260,4 +260,16 @@
     <string name="accessibility_next_day">Mergi la ziua următoare</string>
     <string name="default_calendar_color">Culoare calendar implicit</string>
     <string name="task_color">Culoare sarcină</string>
+    <string name="show_widget_header">Afișează antetul</string>
+    <string name="access_level_public">Public</string>
+    <string name="access_level_private">Privat</string>
+    <string name="access_level_confidential">Confidențial</string>
+    <string name="public_holidays">Sărbători publice</string>
+    <string name="regional_holidays">Sărbători regionale</string>
+    <string name="other_holidays">Alte sărbători și tradiții</string>
+    <string name="select_holidays_to_import">Selectează sărbătorile pentru a le importa</string>
+    <string name="status_tentative">Tentativă</string>
+    <string name="status_confirmed">Confirmat</string>
+    <string name="status_canceled">Anulat</string>
+    <string name="allow_alarms_reminders">Trebuie să permiți aplicației să programeze alarmele pentru ca mementourile să funcționeze corect.</string>
 </resources>

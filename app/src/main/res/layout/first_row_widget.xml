@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="horizontal"
-    android:paddingTop="@dimen/small_margin"
+    android:paddingTop="@dimen/tiny_margin"
     android:paddingBottom="@dimen/small_margin">
 
     <TextView

@@ -10,4 +10,5 @@ keystore.jks
 keystore.properties
 fastlane/fastlane.json
 fastlane/report.xml
+.kotlin/
 

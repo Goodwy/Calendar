@@ -11,7 +11,6 @@ import com.goodwy.commons.extensions.getDefaultAlarmTitle
 import com.goodwy.commons.helpers.BaseConfig
 import com.goodwy.commons.helpers.DAY_MINUTES
 import com.goodwy.commons.helpers.YEAR_SECONDS
-import java.util.Arrays
 import androidx.core.content.edit
 
 class Config(context: Context) : BaseConfig(context) {
@@ -43,14 +42,23 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getBoolean(VIBRATE, false)
         set(vibrate) = prefs.edit { putBoolean(VIBRATE, vibrate) }
 
+    @Deprecated("Not used on Oreo+ devices")
     var reminderSoundUri: String
-        get() = prefs.getString(REMINDER_SOUND_URI, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION).toString())!!
+        get() = prefs.getString(
+            REMINDER_SOUND_URI,
+            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION).toString()
+        )!!
         set(reminderSoundUri) = prefs.edit { putString(REMINDER_SOUND_URI, reminderSoundUri) }
 
+    @Deprecated("Not used on Oreo+ devices")
     var reminderSoundTitle: String
-        get() = prefs.getString(REMINDER_SOUND_TITLE, context.getDefaultAlarmTitle(RingtoneManager.TYPE_NOTIFICATION))!!
+        get() = prefs.getString(
+            REMINDER_SOUND_TITLE,
+            context.getDefaultAlarmTitle(RingtoneManager.TYPE_NOTIFICATION)
+        )!!
         set(reminderSoundTitle) = prefs.edit { putString(REMINDER_SOUND_TITLE, reminderSoundTitle) }
 
+    @Deprecated("Not used on Oreo+ devices")
     var lastSoundUri: String
         get() = prefs.getString(LAST_SOUND_URI, "")!!
         set(lastSoundUri) = prefs.edit { putString(LAST_SOUND_URI, lastSoundUri) }
@@ -79,18 +87,24 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getInt(DISPLAY_PAST_EVENTS, DAY_MINUTES)
         set(displayPastEvents) = prefs.edit { putInt(DISPLAY_PAST_EVENTS, displayPastEvents) }
 
-    var displayEventTypes: Set<String>
-        get() = prefs.getStringSet(DISPLAY_EVENT_TYPES, HashSet())!!
-        set(displayEventTypes) = prefs.edit { remove(DISPLAY_EVENT_TYPES).putStringSet(DISPLAY_EVENT_TYPES, displayEventTypes) }
+    var displayCalendars: Set<String>
+        get() = prefs.getStringSet(DISPLAY_CALENDARS, HashSet())!!
+        set(displayCalendars) = prefs.edit {
+            remove(DISPLAY_CALENDARS)
+                .putStringSet(DISPLAY_CALENDARS, displayCalendars)
+        }
 
-    var quickFilterEventTypes: Set<String>
-        get() = prefs.getStringSet(QUICK_FILTER_EVENT_TYPES, HashSet())!!
-        set(quickFilterEventTypes) = prefs.edit { remove(QUICK_FILTER_EVENT_TYPES).putStringSet(QUICK_FILTER_EVENT_TYPES, quickFilterEventTypes) }
+    var quickFilterCalendars: Set<String>
+        get() = prefs.getStringSet(QUICK_FILTER_CALENDARS, HashSet())!!
+        set(quickFilterCalendars) = prefs.edit {
+            remove(QUICK_FILTER_CALENDARS)
+                .putStringSet(QUICK_FILTER_CALENDARS, quickFilterCalendars)
+        }
 
-    fun addQuickFilterEventType(type: String) {
-        val currQuickFilterEventTypes = HashSet(quickFilterEventTypes)
-        currQuickFilterEventTypes.add(type)
-        quickFilterEventTypes = currQuickFilterEventTypes
+    fun addQuickFilterCalendar(type: String) {
+        val currQuickFilterCalendars = HashSet(quickFilterCalendars)
+        currQuickFilterCalendars.add(type)
+        quickFilterCalendars = currQuickFilterCalendars
     }
 
     var listWidgetViewToOpen: Int
@@ -109,16 +123,23 @@ class Config(context: Context) : BaseConfig(context) {
         set(calendarIDs) = prefs.edit { putString(CALDAV_SYNCED_CALENDAR_IDS, calendarIDs) }
 
     var lastUsedCaldavCalendarId: Int
-        get() = prefs.getInt(LAST_USED_CALDAV_CALENDAR, getSyncedCalendarIdsAsList().first().toInt())
+        get() = prefs.getInt(
+            LAST_USED_CALDAV_CALENDAR,
+            getSyncedCalendarIdsAsList().firstOrNull() ?: STORED_LOCALLY_ONLY
+        )
         set(calendarId) = prefs.edit { putInt(LAST_USED_CALDAV_CALENDAR, calendarId) }
 
-    var lastUsedLocalEventTypeId: Long
-        get() = prefs.getLong(LAST_USED_LOCAL_EVENT_TYPE_ID, REGULAR_EVENT_TYPE_ID)
-        set(lastUsedLocalEventTypeId) = prefs.edit { putLong(LAST_USED_LOCAL_EVENT_TYPE_ID, lastUsedLocalEventTypeId) }
+    var lastUsedLocalCalendarId: Long
+        get() = prefs.getLong(LAST_USED_LOCAL_CALENDAR_ID, LOCAL_CALENDAR_ID)
+        set(lastUsedLocalCalendarId) = prefs.edit {
+            putLong(LAST_USED_LOCAL_CALENDAR_ID, lastUsedLocalCalendarId)
+        }
 
-    var lastUsedIgnoreEventTypesState: Boolean
-        get() = prefs.getBoolean(LAST_USED_IGNORE_EVENT_TYPES_STATE, false)
-        set(lastUsedIgnoreEventTypesState) = prefs.edit { putBoolean(LAST_USED_IGNORE_EVENT_TYPES_STATE, lastUsedIgnoreEventTypesState) }
+    var lastUsedIgnoreCalendarsState: Boolean
+        get() = prefs.getBoolean(LAST_USED_IGNORE_CALENDARS_STATE, false)
+        set(lastUsedIgnoreCalendarsState) = prefs.edit {
+            putBoolean(LAST_USED_IGNORE_CALENDARS_STATE, lastUsedIgnoreCalendarsState)
+        }
 
     var reminderAudioStream: Int
         get() = prefs.getInt(REMINDER_AUDIO_STREAM, AudioManager.STREAM_NOTIFICATION)
@@ -149,24 +170,26 @@ class Config(context: Context) : BaseConfig(context) {
         set(dimCompletedTasks) = prefs.edit { putBoolean(DIM_COMPLETED_TASKS, dimCompletedTasks) }
 
     fun getSyncedCalendarIdsAsList() =
-        caldavSyncedCalendarIds.split(",").filter { it.trim().isNotEmpty() }.map { Integer.parseInt(it) }.toMutableList() as ArrayList<Int>
+        caldavSyncedCalendarIds.split(",").filter { it.trim().isNotEmpty() }
+            .map { Integer.parseInt(it) }.toMutableList() as ArrayList<Int>
 
-    fun getDisplayEventTypessAsList() = displayEventTypes.map { it.toLong() }.toMutableList() as ArrayList<Long>
+    fun getDisplayCalendarsAsList() =
+        displayCalendars.map { it.toLong() }.toMutableList() as ArrayList<Long>
 
-    fun addDisplayEventType(type: String) {
-        addDisplayEventTypes(HashSet(listOf(type)))
+    fun addDisplayCalendar(type: String) {
+        addDisplayCalendars(HashSet(listOf(type)))
     }
 
-    private fun addDisplayEventTypes(types: Set<String>) {
-        val currDisplayEventTypes = HashSet(displayEventTypes)
-        currDisplayEventTypes.addAll(types)
-        displayEventTypes = currDisplayEventTypes
+    private fun addDisplayCalendars(types: Set<String>) {
+        val currDisplayCalendars = HashSet(displayCalendars)
+        currDisplayCalendars.addAll(types)
+        displayCalendars = currDisplayCalendars
     }
 
-    fun removeDisplayEventTypes(types: Set<String>) {
-        val currDisplayEventTypes = HashSet(displayEventTypes)
-        currDisplayEventTypes.removeAll(types)
-        displayEventTypes = currDisplayEventTypes
+    fun removeDisplayCalendars(types: Set<String>) {
+        val currDisplayCalendars = HashSet(displayCalendars)
+        currDisplayCalendars.removeAll(types)
+        displayCalendars = currDisplayCalendars
     }
 
     var usePreviousEventReminders: Boolean
@@ -201,29 +224,38 @@ class Config(context: Context) : BaseConfig(context) {
         get() = prefs.getInt(DEFAULT_DURATION, 0)
         set(defaultDuration) = prefs.edit { putInt(DEFAULT_DURATION, defaultDuration) }
 
-    var defaultEventTypeId: Long
-        get() = prefs.getLong(DEFAULT_EVENT_TYPE_ID, -1L)
-        set(defaultEventTypeId) = prefs.edit { putLong(DEFAULT_EVENT_TYPE_ID, defaultEventTypeId) }
+    var defaultCalendarId: Long
+        get() = prefs.getLong(DEFAULT_CALENDAR_ID, -1L)
+        set(defaultCalendarId) = prefs.edit {
+            putLong(DEFAULT_CALENDAR_ID, defaultCalendarId)
+        }
 
     var allowChangingTimeZones: Boolean
         get() = prefs.getBoolean(ALLOW_CHANGING_TIME_ZONES, false)
-        set(allowChangingTimeZones) = prefs.edit { putBoolean(ALLOW_CHANGING_TIME_ZONES, allowChangingTimeZones) }
+        set(allowChangingTimeZones) =
+            prefs.edit { putBoolean(ALLOW_CHANGING_TIME_ZONES, allowChangingTimeZones) }
 
     var addBirthdaysAutomatically: Boolean
         get() = prefs.getBoolean(ADD_BIRTHDAYS_AUTOMATICALLY, false)
-        set(addBirthdaysAutomatically) = prefs.edit { putBoolean(ADD_BIRTHDAYS_AUTOMATICALLY, addBirthdaysAutomatically) }
+        set(addBirthdaysAutomatically) =
+            prefs.edit { putBoolean(ADD_BIRTHDAYS_AUTOMATICALLY, addBirthdaysAutomatically) }
 
     var addAnniversariesAutomatically: Boolean
         get() = prefs.getBoolean(ADD_ANNIVERSARIES_AUTOMATICALLY, false)
-        set(addAnniversariesAutomatically) = prefs.edit { putBoolean(ADD_ANNIVERSARIES_AUTOMATICALLY, addAnniversariesAutomatically) }
+        set(addAnniversariesAutomatically) =
+            prefs.edit { putBoolean(ADD_ANNIVERSARIES_AUTOMATICALLY, addAnniversariesAutomatically) }
 
     var birthdayReminders: ArrayList<Int>
-        get() = prefs.getString(BIRTHDAY_REMINDERS, REMINDER_DEFAULT_VALUE)!!.split(",").map { it.toInt() }.toMutableList() as ArrayList<Int>
-        set(birthdayReminders) = prefs.edit { putString(BIRTHDAY_REMINDERS, birthdayReminders.joinToString(",")) }
+        get() = prefs.getString(BIRTHDAY_REMINDERS, REMINDER_DEFAULT_VALUE)!!.split(",")
+            .map { it.toInt() }.toMutableList() as ArrayList<Int>
+        set(birthdayReminders) =
+            prefs.edit { putString(BIRTHDAY_REMINDERS, birthdayReminders.joinToString(",")) }
 
     var anniversaryReminders: ArrayList<Int>
-        get() = prefs.getString(ANNIVERSARY_REMINDERS, REMINDER_DEFAULT_VALUE)!!.split(",").map { it.toInt() }.toMutableList() as ArrayList<Int>
-        set(anniversaryReminders) = prefs.edit { putString(ANNIVERSARY_REMINDERS, anniversaryReminders.joinToString(",")) }
+        get() = prefs.getString(ANNIVERSARY_REMINDERS, REMINDER_DEFAULT_VALUE)!!.split(",")
+            .map { it.toInt() }.toMutableList() as ArrayList<Int>
+        set(anniversaryReminders) =
+            prefs.edit { putString(ANNIVERSARY_REMINDERS, anniversaryReminders.joinToString(",")) }
 
     var exportEvents: Boolean
         get() = prefs.getBoolean(EXPORT_EVENTS, true)
@@ -239,7 +271,8 @@ class Config(context: Context) : BaseConfig(context) {
 
     var weeklyViewItemHeightMultiplier: Float
         get() = prefs.getFloat(WEEKLY_VIEW_ITEM_HEIGHT_MULTIPLIER, 1f)
-        set(weeklyViewItemHeightMultiplier) = prefs.edit { putFloat(WEEKLY_VIEW_ITEM_HEIGHT_MULTIPLIER, weeklyViewItemHeightMultiplier) }
+        set(weeklyViewItemHeightMultiplier) =
+            prefs.edit { putFloat(WEEKLY_VIEW_ITEM_HEIGHT_MULTIPLIER, weeklyViewItemHeightMultiplier) }
 
     var weeklyViewDays: Int
         get() = prefs.getInt(WEEKLY_VIEW_DAYS, 7)
@@ -263,11 +296,15 @@ class Config(context: Context) : BaseConfig(context) {
 
     var wasFilteredOutWarningShown: Boolean
         get() = prefs.getBoolean(WAS_FILTERED_OUT_WARNING_SHOWN, false)
-        set(wasFilteredOutWarningShown) = prefs.edit { putBoolean(WAS_FILTERED_OUT_WARNING_SHOWN, wasFilteredOutWarningShown) }
+        set(wasFilteredOutWarningShown) =
+            prefs.edit { putBoolean(WAS_FILTERED_OUT_WARNING_SHOWN, wasFilteredOutWarningShown) }
 
-    var autoBackupEventTypes: Set<String>
-        get() = prefs.getStringSet(AUTO_BACKUP_EVENT_TYPES, HashSet())!!
-        set(autoBackupEventTypes) = prefs.edit { remove(AUTO_BACKUP_EVENT_TYPES).putStringSet(AUTO_BACKUP_EVENT_TYPES, autoBackupEventTypes) }
+    var autoBackupCalendars: Set<String>
+        get() = prefs.getStringSet(AUTO_BACKUP_CALENDARS, HashSet())!!
+        set(autoBackupCalendars) = prefs.edit {
+            remove(AUTO_BACKUP_CALENDARS)
+                .putStringSet(AUTO_BACKUP_CALENDARS, autoBackupCalendars)
+        }
 
     var autoBackupEvents: Boolean
         get() = prefs.getBoolean(AUTO_BACKUP_EVENTS, true)
@@ -279,16 +316,27 @@ class Config(context: Context) : BaseConfig(context) {
 
     var autoBackupPastEntries: Boolean
         get() = prefs.getBoolean(AUTO_BACKUP_PAST_ENTRIES, true)
-        set(autoBackupPastEntries) = prefs.edit { putBoolean(AUTO_BACKUP_PAST_ENTRIES, autoBackupPastEntries) }
+        set(autoBackupPastEntries) =
+            prefs.edit { putBoolean(AUTO_BACKUP_PAST_ENTRIES, autoBackupPastEntries) }
 
     var lastUsedShowListWidgetHeader: Boolean
         get() = prefs.getBoolean(LAST_USED_SHOW_LIST_WIDGET_HEADER, true)
-        set(lastUsedShowListWidgetHeader) = prefs.edit { putBoolean(LAST_USED_SHOW_LIST_WIDGET_HEADER, lastUsedShowListWidgetHeader) }
+        set(lastUsedShowListWidgetHeader) =
+            prefs.edit { putBoolean(LAST_USED_SHOW_LIST_WIDGET_HEADER, lastUsedShowListWidgetHeader) }
 
     //Goodwy
     var widgetSecondTextColor: Int
-        get() = prefs.getInt(WIDGET_SECOND_TEXT_COLOR, ContextCompat.getColor(context, com.goodwy.commons.R.color.theme_light_text_color))
-        set(widgetSecondTextColor) = prefs.edit { putInt(WIDGET_SECOND_TEXT_COLOR, widgetSecondTextColor) }
+        get() = prefs.getInt(
+            WIDGET_SECOND_TEXT_COLOR,
+            ContextCompat.getColor(context, com.goodwy.commons.R.color.theme_light_text_color)
+        )
+        set(widgetSecondTextColor) =
+            prefs.edit { putInt(WIDGET_SECOND_TEXT_COLOR, widgetSecondTextColor) }
+
+    var widgetMonthEventsVisibility: Int
+        get() = prefs.getInt(WIDGET_MONTH_EVENTS_VISIBILITY, WIDGET_MONTH_EVENTS_INVISIBLE)
+        set(widgetMonthEventsVisibility) =
+            prefs.edit { putInt(WIDGET_MONTH_EVENTS_VISIBILITY, widgetMonthEventsVisibility) }
 
     var showWidgetName: Boolean
         get() = prefs.getBoolean(SHOW_WIDGET_NAME, true)

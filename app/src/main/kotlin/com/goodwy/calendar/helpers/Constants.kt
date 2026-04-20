@@ -1,9 +1,11 @@
 package com.goodwy.calendar.helpers
 
 import android.provider.CalendarContract.Events
+import com.goodwy.calendar.R
 import com.goodwy.calendar.activities.EventActivity
 import com.goodwy.calendar.activities.TaskActivity
 import com.goodwy.commons.helpers.MONTH_SECONDS
+import com.goodwy.commons.models.Release
 import org.joda.time.DateTime
 import org.joda.time.DateTimeConstants
 import java.util.UUID
@@ -13,6 +15,7 @@ const val ROW_COUNT = 6
 const val COLUMN_COUNT = 7
 const val SCHEDULE_CALDAV_REQUEST_CODE = 10000
 const val AUTOMATIC_BACKUP_REQUEST_CODE = 10001
+const val DUMMY_ALARM_REQUEST_CODE = 10002
 const val FETCH_INTERVAL = 3 * MONTH_SECONDS
 const val MAX_SEARCH_YEAR =
     2051218800L  // 2035, limit search results for events repeating indefinitely
@@ -38,6 +41,7 @@ const val CALDAV = "Caldav"
 const val VIEW_TO_OPEN = "view_to_open"
 const val SHORTCUT_NEW_EVENT = "shortcut_new_event"
 const val SHORTCUT_NEW_TASK = "shortcut_new_task"
+const val LOCAL_CALENDAR_ID = 1L
 const val REGULAR_EVENT_TYPE_ID = 1L
 const val TIME_ZONE = "time_zone"
 const val CURRENT_TIME_ZONE = "current_time_zone"
@@ -96,14 +100,14 @@ const val VIEW = "view"
 const val LAST_EVENT_REMINDER_MINUTES = "reminder_minutes"
 const val LAST_EVENT_REMINDER_MINUTES_2 = "reminder_minutes_2"
 const val LAST_EVENT_REMINDER_MINUTES_3 = "reminder_minutes_3"
-const val DISPLAY_EVENT_TYPES = "display_event_types"
-const val QUICK_FILTER_EVENT_TYPES = "quick_filter_event_types"
+const val DISPLAY_CALENDARS = "display_event_types"
+const val QUICK_FILTER_CALENDARS = "quick_filter_event_types"
 const val LIST_WIDGET_VIEW_TO_OPEN = "list_widget_view_to_open"
 const val CALDAV_SYNC = "caldav_sync"
 const val CALDAV_SYNCED_CALENDAR_IDS = "caldav_synced_calendar_ids"
 const val LAST_USED_CALDAV_CALENDAR = "last_used_caldav_calendar"
-const val LAST_USED_LOCAL_EVENT_TYPE_ID = "last_used_local_event_type_id"
-const val LAST_USED_IGNORE_EVENT_TYPES_STATE = "last_used_ignore_event_types_state"
+const val LAST_USED_LOCAL_CALENDAR_ID = "last_used_local_event_type_id"
+const val LAST_USED_IGNORE_CALENDARS_STATE = "last_used_ignore_event_types_state"
 const val DISPLAY_PAST_EVENTS = "display_past_events"
 const val DISPLAY_DESCRIPTION = "display_description"
 const val REPLACE_DESCRIPTION = "replace_description"
@@ -122,7 +126,7 @@ const val PULL_TO_REFRESH = "pull_to_refresh"
 const val LAST_VIBRATE_ON_REMINDER = "last_vibrate_on_reminder"
 const val DEFAULT_START_TIME = "default_start_time"
 const val DEFAULT_DURATION = "default_duration"
-const val DEFAULT_EVENT_TYPE_ID = "default_event_type_id"
+const val DEFAULT_CALENDAR_ID = "default_event_type_id"
 const val ALLOW_CHANGING_TIME_ZONES = "allow_changing_time_zones"
 const val ADD_BIRTHDAYS_AUTOMATICALLY = "add_birthdays_automatically"
 const val ADD_ANNIVERSARIES_AUTOMATICALLY = "add_anniversaries_automatically"
@@ -142,7 +146,7 @@ const val WAS_FILTERED_OUT_WARNING_SHOWN = "was_filtered_out_warning_shown"
 const val AUTO_BACKUP = "auto_backup"
 const val AUTO_BACKUP_FOLDER = "auto_backup_folder"
 const val AUTO_BACKUP_FILENAME = "auto_backup_filename"
-const val AUTO_BACKUP_EVENT_TYPES = "auto_backup_event_types"
+const val AUTO_BACKUP_CALENDARS = "auto_backup_event_types"
 const val AUTO_BACKUP_EVENTS = "auto_backup_events"
 const val AUTO_BACKUP_TASKS = "auto_backup_tasks"
 const val AUTO_BACKUP_PAST_ENTRIES = "auto_backup_past_entries"
@@ -150,6 +154,7 @@ const val LAST_AUTO_BACKUP_TIME = "last_auto_backup_time"
 const val LAST_USED_SHOW_LIST_WIDGET_HEADER = "last_used_show_widget_header"
 //Goodwy
 const val WIDGET_SECOND_TEXT_COLOR = "widget_second_text_color"
+const val WIDGET_MONTH_EVENTS_VISIBILITY = "widget_month_events_visibility"
 const val SHOW_WIDGET_NAME = "show_widget_name"
 
 // repeat_rule for monthly and yearly repetition
@@ -166,6 +171,11 @@ const val FLAG_ALL_DAY = 1
 const val FLAG_IS_IN_PAST = 2
 const val FLAG_MISSING_YEAR = 4
 const val FLAG_TASK_COMPLETED = 8
+
+// special event and task flags
+const val WIDGET_MONTH_EVENTS_INVISIBLE = 0
+const val WIDGET_MONTH_EVENTS_BOLD = 1
+const val WIDGET_MONTH_EVENTS_COLOR = 2
 
 // constants related to ICS file exporting / importing
 const val BEGIN_CALENDAR = "BEGIN:VCALENDAR"
@@ -275,9 +285,10 @@ const val REPEAT_INTERVAL = "REPEAT_INTERVAL"
 const val REPEAT_LIMIT = "REPEAT_LIMIT"
 const val REPEAT_RULE = "REPEAT_RULE"
 const val ATTENDEES = "ATTENDEES"
+const val ORIGINAL_ATTENDEES = "ORIGINAL_ATTENDEES"
 const val AVAILABILITY = "AVAILABILITY"
 const val CLASS = "CLASS"
-const val EVENT_TYPE_ID = "EVENT_TYPE_ID"
+const val CALENDAR_ID = "CALENDAR_ID"
 const val EVENT_CALENDAR_ID = "EVENT_CALENDAR_ID"
 const val IS_NEW_EVENT = "IS_NEW_EVENT"
 const val EVENT_COLOR = "EVENT_COLOR"
@@ -340,5 +351,14 @@ fun getAccessLevelStringFromEventAccessLevel(accessLevel: Int): String {
         Events.ACCESS_PRIVATE -> PRIVATE
         Events.ACCESS_CONFIDENTIAL -> CONFIDENTIAL
         else -> PUBLIC
+    }
+}
+
+fun whatsNewList(): ArrayList<Release> {
+    return arrayListOf<Release>().apply {
+        add(Release(601, R.string.release_601))
+        add(Release(610, R.string.release_610))
+        add(Release(632, R.string.release_632))
+        add(Release(820, R.string.release_820))
     }
 }

@@ -3,7 +3,6 @@ package com.goodwy.calendar.activities
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Intent
-import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.core.content.ContextCompat
@@ -14,8 +13,8 @@ import com.goodwy.calendar.databinding.ActivityTaskBinding
 import com.goodwy.calendar.dialogs.*
 import com.goodwy.calendar.extensions.*
 import com.goodwy.calendar.helpers.*
+import com.goodwy.calendar.models.CalendarEntity
 import com.goodwy.calendar.models.Event
-import com.goodwy.calendar.models.EventType
 import com.goodwy.calendar.models.Reminder
 import com.goodwy.commons.dialogs.ColorPickerDialog
 import com.goodwy.commons.dialogs.ConfirmationAdvancedDialog
@@ -28,7 +27,7 @@ import org.joda.time.DateTime
 import androidx.core.graphics.drawable.toDrawable
 
 class TaskActivity : SimpleActivity() {
-    private var mEventTypeId = REGULAR_EVENT_TYPE_ID
+    private var mCalendarId = LOCAL_CALENDAR_ID
     private lateinit var mTaskDateTime: DateTime
     private lateinit var mTask: Event
 
@@ -48,11 +47,11 @@ class TaskActivity : SimpleActivity() {
     private var mLastSavePromptTS = 0L
     private var mIsNewTask = true
     private var mEventColor = 0
+    private var mConvertedFromOriginalAllDay = false
 
     private val binding by viewBinding(ActivityTaskBinding::inflate)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        isMaterialActivity = true
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         setupOptionsMenu()
@@ -62,8 +61,10 @@ class TaskActivity : SimpleActivity() {
             return
         }
 
-        updateMaterialActivityViews(binding.taskCoordinator, binding.taskHolder, useTransparentNavigation = true, useTopSearchMenu = false)
-        if (baseConfig.backgroundColor != 0xFFFFFFFF.toInt()) setupMaterialScrollListener(binding.taskNestedScrollview, binding.taskToolbar)
+        setupEdgeToEdge(padBottomImeAndSystem = listOf(binding.taskNestedScrollview))
+        if (baseConfig.backgroundColor != 0xFFFFFFFF.toInt()) {
+            setupMaterialScrollListener(binding.taskNestedScrollview, binding.taskAppbar)
+        }
 
         val intent = intent ?: return
         updateColors()
@@ -76,11 +77,13 @@ class TaskActivity : SimpleActivity() {
                 return@ensureBackgroundThread
             }
 
-            val storedEventTypes = eventTypesDB.getEventTypes().toMutableList() as ArrayList<EventType>
-            val localEventType = storedEventTypes.firstOrNull { it.id == config.lastUsedLocalEventTypeId }
+            val storedCalendars =
+                calendarsDB.getCalendars().toMutableList() as ArrayList<CalendarEntity>
+            val localCalendar =
+                storedCalendars.firstOrNull { it.id == config.lastUsedLocalCalendarId }
             runOnUiThread {
                 if (!isDestroyed && !isFinishing) {
-                    gotTask(savedInstanceState, localEventType, task)
+                    gotTask(savedInstanceState, storedCalendars, localCalendar, task)
                 }
             }
         }
@@ -88,7 +91,7 @@ class TaskActivity : SimpleActivity() {
 
     override fun onResume() {
         super.onResume()
-        setupToolbar(binding.taskToolbar, NavigationIcon.Arrow)
+        setupTopAppBar()
 
         val white = 0xFFFFFFFF.toInt()
         val gray = 0xFFEBEBEB.toInt()
@@ -105,7 +108,7 @@ class TaskActivity : SimpleActivity() {
             binding.taskToolbar.setBackgroundColor(properBackgroundColor)
         }
 
-        val holderBg = if (baseConfig.backgroundColor == white || baseConfig.backgroundColor == gray) white else getBottomNavigationBackgroundColor()
+        val holderBg = if (baseConfig.backgroundColor == white || baseConfig.backgroundColor == gray) white else getSurfaceColor()
         arrayOf(
             binding.taskTitleHolder,
             binding.taskTimeHolder,
@@ -116,12 +119,22 @@ class TaskActivity : SimpleActivity() {
             it.setCardBackgroundColor(holderBg)
         }
 
-        val buttonBg = if (baseConfig.backgroundColor == white || baseConfig.backgroundColor == gray) gray.lightenColor(2) else getBottomNavigationBackgroundColor().lightenColor(12)
+        val buttonBg = if (baseConfig.backgroundColor == white || baseConfig.backgroundColor == gray) gray.lightenColor(2) else getSurfaceColor().lightenColor(12)
         arrayOf(
             binding.taskTime,
             binding.taskDate,
         ).forEach {
             it.background.setTint(buttonBg)
+        }
+    }
+
+    private fun setupTopAppBar() {
+        setupTopAppBar(binding.taskAppbar, NavigationIcon.Arrow)
+        binding.taskToolbar.setNavigationOnClickListener {
+            maybeShowUnsavedChangesDialog {
+                hideKeyboard()
+                finish()
+            }
         }
     }
 
@@ -167,12 +180,20 @@ class TaskActivity : SimpleActivity() {
             reminders != originalReminders ||
             mRepeatInterval != mTask.repeatInterval ||
             mRepeatRule != mTask.repeatRule ||
-            mEventTypeId != mTask.eventType ||
+            mRepeatLimit != mTask.repeatLimit ||
+            mCalendarId != mTask.calendarId ||
             mEventColor != mTask.color ||
             hasTimeChanged
     }
 
-    override fun onBackPressed() {
+    override fun onBackPressedCompat(): Boolean {
+        maybeShowUnsavedChangesDialog {
+            performDefaultBack()
+        }
+        return true
+    }
+
+    private fun maybeShowUnsavedChangesDialog(discard: () -> Unit) {
         if (System.currentTimeMillis() - mLastSavePromptTS > SAVE_DISCARD_PROMPT_INTERVAL && isTaskChanged()) {
             mLastSavePromptTS = System.currentTimeMillis()
             ConfirmationAdvancedDialog(
@@ -185,11 +206,11 @@ class TaskActivity : SimpleActivity() {
                 if (it) {
                     saveCurrentTask()
                 } else {
-                    super.onBackPressed()
+                    discard()
                 }
             }
         } else {
-            super.onBackPressed()
+            discard()
         }
     }
 
@@ -202,7 +223,7 @@ class TaskActivity : SimpleActivity() {
         outState.apply {
             putSerializable(TASK, mTask)
             putLong(START_TS, mTaskDateTime.seconds())
-            putLong(EVENT_TYPE_ID, mEventTypeId)
+            putLong(CALENDAR_ID, mCalendarId)
 
             putInt(REMINDER_1_MINUTES, mReminder1Minutes)
             putInt(REMINDER_2_MINUTES, mReminder2Minutes)
@@ -212,7 +233,7 @@ class TaskActivity : SimpleActivity() {
             putInt(REPEAT_RULE, mRepeatRule)
             putLong(REPEAT_LIMIT, mRepeatLimit)
 
-            putLong(EVENT_TYPE_ID, mEventTypeId)
+            putLong(CALENDAR_ID, mCalendarId)
             putBoolean(IS_NEW_EVENT, mIsNewTask)
             putLong(ORIGINAL_START_TS, mOriginalStartTS)
             putInt(EVENT_COLOR, mEventColor)
@@ -230,7 +251,7 @@ class TaskActivity : SimpleActivity() {
         savedInstanceState.apply {
             mTask = getSerializable(TASK) as Event
             mTaskDateTime = Formatter.getDateTimeFromTS(getLong(START_TS))
-            mEventTypeId = getLong(EVENT_TYPE_ID)
+            mCalendarId = getLong(CALENDAR_ID)
 
             mReminder1Minutes = getInt(REMINDER_1_MINUTES)
             mReminder2Minutes = getInt(REMINDER_2_MINUTES)
@@ -239,13 +260,13 @@ class TaskActivity : SimpleActivity() {
             mRepeatInterval = getInt(REPEAT_INTERVAL)
             mRepeatRule = getInt(REPEAT_RULE)
             mRepeatLimit = getLong(REPEAT_LIMIT)
-            mEventTypeId = getLong(EVENT_TYPE_ID)
+            mCalendarId = getLong(CALENDAR_ID)
             mIsNewTask = getBoolean(IS_NEW_EVENT)
             mOriginalStartTS = getLong(ORIGINAL_START_TS)
             mEventColor = getInt(EVENT_COLOR)
         }
 
-        updateEventType()
+        updateCalendar()
         updateTexts()
         setupMarkCompleteButton()
         checkRepeatTexts(mRepeatInterval)
@@ -253,76 +274,104 @@ class TaskActivity : SimpleActivity() {
         updateActionBarTitle()
     }
 
-    private fun gotTask(savedInstanceState: Bundle?, localEventType: EventType?, task: Event?) {
-        if (localEventType == null) {
-            config.lastUsedLocalEventTypeId = REGULAR_EVENT_TYPE_ID
+    private fun gotTask(
+        savedInstanceState: Bundle?,
+        storedCalendars: ArrayList<CalendarEntity>,
+        localCalendar: CalendarEntity?,
+        task: Event?
+    ) {
+        if (localCalendar == null || localCalendar.caldavCalendarId != 0) {
+            config.lastUsedLocalCalendarId = LOCAL_CALENDAR_ID
         }
 
-        mEventTypeId = if (config.defaultEventTypeId == -1L) config.lastUsedLocalEventTypeId else config.defaultEventTypeId
+        mCalendarId = resolveTaskCalendarId(storedCalendars)
 
         if (task != null) {
-            mTask = task
-            mTaskOccurrenceTS = intent.getLongExtra(EVENT_OCCURRENCE_TS, 0L)
-            mTaskCompleted = intent.getBooleanExtra(IS_TASK_COMPLETED, false)
-            if (savedInstanceState == null) {
-                setupEditTask()
-            }
-
-            if (intent.getBooleanExtra(IS_DUPLICATE_INTENT, false)) {
-                mTask.id = null
-                binding.taskToolbar.title = getString(R.string.new_task)
-            }
+            setupExistingTask(task, savedInstanceState)
         } else {
-            mTask = Event(null)
-            config.apply {
-                mReminder1Minutes = if (usePreviousEventReminders && lastEventReminderMinutes1 >= -1) lastEventReminderMinutes1 else defaultReminder1
-                mReminder2Minutes = if (usePreviousEventReminders && lastEventReminderMinutes2 >= -1) lastEventReminderMinutes2 else defaultReminder2
-                mReminder3Minutes = if (usePreviousEventReminders && lastEventReminderMinutes3 >= -1) lastEventReminderMinutes3 else defaultReminder3
-            }
-
-            if (savedInstanceState == null) {
-                setupNewTask()
-            }
+            setupNewTask(savedInstanceState)
         }
 
-        binding.apply {
-            taskAllDay.setOnCheckedChangeListener { _, isChecked -> toggleAllDay(isChecked) }
-            taskAllDayHolder.setOnClickListener {
-                taskAllDay.toggle()
-            }
-
-            taskDate.setOnClickListener { setupDate() }
-            taskTime.setOnClickListener { setupTime() }
-            taskTypeHolder.setOnClickListener { showEventTypeDialog() }
-            taskRepetitionHolder.setOnClickListener { showRepeatIntervalDialog() }
-            taskRepetitionRuleHolder.setOnClickListener { showRepetitionRuleDialog() }
-            taskRepetitionLimitHolder.setOnClickListener { showRepetitionTypePicker() }
-
-            taskReminder1Holder.setOnClickListener {
-                handleNotificationAvailability {
-                    if (config.wasAlarmWarningShown) {
-                        showReminder1Dialog()
-                    } else {
-                        ReminderWarningDialog(this@TaskActivity) {
-                            config.wasAlarmWarningShown = true
-                            showReminder1Dialog()
-                        }
-                    }
-                }
-            }
-
-            taskReminder2Holder.setOnClickListener { showReminder2Dialog() }
-            taskReminder3Holder.setOnClickListener { showReminder3Dialog() }
-            taskColorHolder.setOnClickListener { showTaskColorDialog() }
-        }
-
+        setupTaskClickListeners()
         refreshMenuItems()
         setupMarkCompleteButton()
 
         if (savedInstanceState == null) {
-            updateEventType()
+            updateCalendar()
             updateTexts()
         }
+    }
+
+    private fun setupExistingTask(task: Event, savedInstanceState: Bundle?) {
+        mTask = task
+        mTaskOccurrenceTS = intent.getLongExtra(EVENT_OCCURRENCE_TS, 0L)
+        mTaskCompleted = intent.getBooleanExtra(IS_TASK_COMPLETED, false)
+        if (savedInstanceState == null) {
+            setupEditTask()
+        }
+
+        if (intent.getBooleanExtra(IS_DUPLICATE_INTENT, false)) {
+            mTask.id = null
+            binding.taskToolbar.title = getString(R.string.new_task)
+        }
+    }
+
+    private fun setupNewTask(savedInstanceState: Bundle?) {
+        mTask = Event(null)
+        config.apply {
+            mReminder1Minutes =
+                if (usePreviousEventReminders && lastEventReminderMinutes1 >= -1) lastEventReminderMinutes1 else defaultReminder1
+            mReminder2Minutes =
+                if (usePreviousEventReminders && lastEventReminderMinutes2 >= -1) lastEventReminderMinutes2 else defaultReminder2
+            mReminder3Minutes =
+                if (usePreviousEventReminders && lastEventReminderMinutes3 >= -1) lastEventReminderMinutes3 else defaultReminder3
+        }
+
+        if (savedInstanceState == null) setupNewTask()
+    }
+
+    private fun resolveTaskCalendarId(storedCalendars: ArrayList<CalendarEntity>): Long {
+        return if (config.defaultCalendarId == -1L) {
+            config.lastUsedLocalCalendarId
+        } else {
+            val defaultCalendar = storedCalendars.firstOrNull { it.id == config.defaultCalendarId }
+            if (defaultCalendar?.caldavCalendarId == 0) {
+                config.defaultCalendarId
+            } else {
+                config.lastUsedLocalCalendarId
+            }
+        }
+    }
+
+    private fun setupTaskClickListeners() = binding.apply {
+        taskAllDay.setOnCheckedChangeListener { _, isChecked -> toggleAllDay(isChecked) }
+        taskAllDayHolder.setOnClickListener {
+            taskAllDay.toggle()
+        }
+
+        taskDate.setOnClickListener { setupDate() }
+        taskTime.setOnClickListener { setupTime() }
+        calendarHolder.setOnClickListener { showCalendarDialog() }
+        taskRepetition.setOnClickListener { showRepeatIntervalDialog() }
+        taskRepetitionRuleHolder.setOnClickListener { showRepetitionRuleDialog() }
+        taskRepetitionLimitHolder.setOnClickListener { showRepetitionTypePicker() }
+
+        taskReminder1.setOnClickListener {
+            handleNotificationAvailability {
+                if (config.wasAlarmWarningShown) {
+                    showReminder1Dialog()
+                } else {
+                    ReminderWarningDialog(this@TaskActivity) {
+                        config.wasAlarmWarningShown = true
+                        showReminder1Dialog()
+                    }
+                }
+            }
+        }
+
+        taskReminder2.setOnClickListener { showReminder2Dialog() }
+        taskReminder3.setOnClickListener { showReminder3Dialog() }
+        taskColorHolder.setOnClickListener { showTaskColorDialog() }
     }
 
     private fun setupEditTask() {
@@ -333,7 +382,7 @@ class TaskActivity : SimpleActivity() {
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         binding.taskToolbar.title = getString(R.string.edit_task)
 
-        mEventTypeId = mTask.eventType
+        mCalendarId = mTask.calendarId
         mReminder1Minutes = mTask.reminder1Minutes
         mReminder2Minutes = mTask.reminder2Minutes
         mReminder3Minutes = mTask.reminder3Minutes
@@ -370,7 +419,7 @@ class TaskActivity : SimpleActivity() {
             reminder2Type = mReminder2Type
             reminder3Minutes = mReminder3Minutes
             reminder3Type = mReminder3Type
-            eventType = mEventTypeId
+            calendarId = mCalendarId
         }
     }
 
@@ -433,7 +482,7 @@ class TaskActivity : SimpleActivity() {
             }
         }
 
-        config.lastUsedLocalEventTypeId = mEventTypeId
+        config.lastUsedLocalCalendarId = mCalendarId
         mTask.apply {
             startTS = mTaskDateTime.withSecondOfMinute(0).withMillisOfSecond(0).seconds()
             endTS = startTS
@@ -450,7 +499,7 @@ class TaskActivity : SimpleActivity() {
             importId = newImportId
             flags = mTask.flags.addBitIf(binding.taskAllDay.isChecked, FLAG_ALL_DAY)
             lastUpdated = System.currentTimeMillis()
-            eventType = mEventTypeId
+            calendarId = mCalendarId
             type = TYPE_TASK
 
             reminder1Minutes = reminder1.minutes
@@ -473,7 +522,11 @@ class TaskActivity : SimpleActivity() {
                         storeTask(wasRepeatable)
                     }
                 } else {
-                    PermissionRequiredDialog(this, com.goodwy.commons.R.string.allow_notifications_reminders, { openNotificationSettings() })
+                    PermissionRequiredDialog(
+                        activity = this,
+                        textId = com.goodwy.commons.R.string.allow_notifications_reminders,
+                        positiveActionCallback = { openNotificationSettings() }
+                    )
                 }
             }
         } else {
@@ -516,7 +569,7 @@ class TaskActivity : SimpleActivity() {
             }
             when (it) {
                 EDIT_SELECTED_OCCURRENCE -> {
-                    eventsHelper.editSelectedOccurrence(mTask, true) {
+                    eventsHelper.editSelectedOccurrence(mTask, mTaskOccurrenceTS, true) {
                         finish()
                     }
                 }
@@ -548,9 +601,21 @@ class TaskActivity : SimpleActivity() {
         DeleteEventDialog(this, arrayListOf(mTask.id!!), mTask.repeatInterval > 0, isTask = true) {
             ensureBackgroundThread {
                 when (it) {
-                    DELETE_SELECTED_OCCURRENCE -> eventsHelper.deleteRepeatingEventOccurrence(mTask.id!!, mTaskOccurrenceTS, false)
-                    DELETE_FUTURE_OCCURRENCES -> eventsHelper.addEventRepeatLimit(mTask.id!!, mTaskOccurrenceTS)
-                    DELETE_ALL_OCCURRENCES -> eventsHelper.deleteEvent(mTask.id!!, false)
+                    DELETE_SELECTED_OCCURRENCE -> eventsHelper.deleteRepeatingEventOccurrence(
+                        parentEventId = mTask.id!!,
+                        occurrenceTS = mTaskOccurrenceTS,
+                        addToCalDAV = false
+                    )
+
+                    DELETE_FUTURE_OCCURRENCES -> eventsHelper.addEventRepeatLimit(
+                        eventId = mTask.id!!,
+                        occurrenceTS = mTaskOccurrenceTS
+                    )
+
+                    DELETE_ALL_OCCURRENCES -> eventsHelper.deleteEvent(
+                        id = mTask.id!!,
+                        deleteFromCalDAV = false
+                    )
                 }
 
                 runOnUiThread {
@@ -575,7 +640,12 @@ class TaskActivity : SimpleActivity() {
     private fun setupDate() {
         hideKeyboard()
         val datePicker = DatePickerDialog(
-            this, getDatePickerDialogTheme(), dateSetListener, mTaskDateTime.year, mTaskDateTime.monthOfYear - 1, mTaskDateTime.dayOfMonth
+            this,
+            getDatePickerDialogTheme(),
+            dateSetListener,
+            mTaskDateTime.year,
+            mTaskDateTime.monthOfYear - 1,
+            mTaskDateTime.dayOfMonth
         )
 
         datePicker.datePicker.firstDayOfWeek = getJavaDayOfWeekFromISO(config.firstDayOfWeek)
@@ -615,9 +685,10 @@ class TaskActivity : SimpleActivity() {
         }
     }
 
-    private val dateSetListener = DatePickerDialog.OnDateSetListener { _, year, monthOfYear, dayOfMonth ->
-        dateSet(year, monthOfYear, dayOfMonth)
-    }
+    private val dateSetListener =
+        DatePickerDialog.OnDateSetListener { _, year, monthOfYear, dayOfMonth ->
+            dateSet(year, monthOfYear, dayOfMonth)
+        }
 
     private val timeSetListener = TimePickerDialog.OnTimeSetListener { _, hourOfDay, minute ->
         timeSet(hourOfDay, minute)
@@ -665,6 +736,25 @@ class TaskActivity : SimpleActivity() {
 
     private fun toggleAllDay(isChecked: Boolean) {
         hideKeyboard()
+
+        // One-time migration: when converting from all-day to timed for the first time,
+        // set default start time to avoid unexpected time values
+        if (!isChecked && mTask.getIsAllDay() && !mConvertedFromOriginalAllDay) {
+            val defaultStartTS =
+                getNewEventTimestampFromCode(Formatter.getDayCodeFromDateTime(mTaskDateTime))
+            val defaultStartTime = Formatter.getDateTimeFromTS(defaultStartTS)
+
+            mTaskDateTime = mTaskDateTime.withTime(
+                defaultStartTime.hourOfDay,
+                defaultStartTime.minuteOfHour,
+                0,
+                0
+            )
+
+            mConvertedFromOriginalAllDay = true
+            updateTimeText()
+        }
+
         mIsAllDayTask = isChecked
         binding.taskTime.beGoneIf(isChecked)
     }
@@ -774,58 +864,64 @@ class TaskActivity : SimpleActivity() {
             Reminder(mReminder2Minutes, mReminder2Type),
             Reminder(mReminder3Minutes, mReminder3Type)
         )
-        reminders = reminders.filter { it.minutes != REMINDER_OFF }.sortedBy { it.minutes }.toMutableList() as ArrayList<Reminder>
+        reminders = reminders.filter { it.minutes != REMINDER_OFF }.sortedBy { it.minutes }
+            .toMutableList() as ArrayList<Reminder>
         return reminders
     }
 
-    private fun showEventTypeDialog() {
+    private fun showCalendarDialog() {
         hideKeyboard()
-        SelectEventTypeDialog(
+        SelectCalendarDialog(
             activity = this,
-            currEventType = mEventTypeId,
+            currCalendar = mCalendarId,
             showCalDAVCalendars = false,
-            showNewEventTypeOption = true,
+            showNewCalendarOption = false,
             addLastUsedOneAsFirstOption = false,
             showOnlyWritable = true,
-            showManageEventTypes = true
+            showManageCalendars = true
         ) {
-            mEventTypeId = it.id!!
-            updateEventType()
+            mCalendarId = it.id!!
+            updateCalendar()
         }
     }
 
-    private fun updateEventType() {
+    private fun updateCalendar() {
         ensureBackgroundThread {
-            val eventType = eventTypesDB.getEventTypeWithId(mEventTypeId)
-            if (eventType != null) {
+            val calendar = calendarsDB.getCalendarWithId(mCalendarId)
+            if (calendar != null) {
                 runOnUiThread {
-                    binding.taskType.text = eventType.title
-                    updateTaskColorInfo(eventType.color)
+                    binding.calendarTitle.text = calendar.title
+                    binding.calendarSubtitle.text = getString(R.string.offline_never_synced)
+                    updateTaskColorInfo(calendar.color)
                 }
             }
-            binding.taskColorHolder.beVisibleIf(eventType != null)
-            binding.taskTypeDivider.root.beVisibleIf(eventType != null)
+//            binding.taskColorImage.beVisibleIf(calendar != null)
+            binding.taskColorHolder.beVisibleIf(calendar != null)
+            binding.calendarDivider.root.beVisibleIf(calendar != null)
         }
     }
 
     private fun showTaskColorDialog() {
         hideKeyboard()
         ensureBackgroundThread {
-            val eventType = eventTypesDB.getEventTypeWithId(mEventTypeId)!!
+            val calendar = calendarsDB.getCalendarWithId(mCalendarId)!!
             val currentColor = if (mEventColor == 0) {
-                eventType.color
+                calendar.color
             } else {
                 mEventColor
             }
 
             runOnUiThread {
-                ColorPickerDialog(activity = this, color = currentColor, addDefaultColorButton = true,
-                    colorDefault = eventType.color
+                ColorPickerDialog(
+                    activity = this,
+                    color = currentColor,
+                    addDefaultColorButton = true,
+                    colorDefault = calendar.color
                 ) { wasPositivePressed, newColor, wasDefaultPressed ->
                     if (wasPositivePressed || wasDefaultPressed) {
                         if (newColor != currentColor) {
                             mEventColor = newColor
-                            updateTaskColorInfo(defaultColor = eventType.color)
+                            updateTaskColorInfo(defaultColor = calendar.color)
                         }
                     }
                 }
@@ -934,33 +1030,70 @@ class TaskActivity : SimpleActivity() {
     }
 
     private fun getAvailableMonthlyRepetitionRules(): ArrayList<RadioItem> {
-        val items = arrayListOf(RadioItem(REPEAT_SAME_DAY, getString(R.string.repeat_on_the_same_day_monthly)))
+        val items = arrayListOf(
+            RadioItem(
+                REPEAT_SAME_DAY,
+                getString(R.string.repeat_on_the_same_day_monthly)
+            )
+        )
 
-        items.add(RadioItem(REPEAT_ORDER_WEEKDAY, getRepeatXthDayString(true, REPEAT_ORDER_WEEKDAY)))
+        items.add(
+            RadioItem(
+                REPEAT_ORDER_WEEKDAY,
+                getRepeatXthDayString(true, REPEAT_ORDER_WEEKDAY)
+            )
+        )
         if (isLastWeekDayOfMonth()) {
-            items.add(RadioItem(REPEAT_ORDER_WEEKDAY_USE_LAST, getRepeatXthDayString(true, REPEAT_ORDER_WEEKDAY_USE_LAST)))
+            items.add(
+                RadioItem(
+                    REPEAT_ORDER_WEEKDAY_USE_LAST,
+                    getRepeatXthDayString(true, REPEAT_ORDER_WEEKDAY_USE_LAST)
+                )
+            )
         }
 
         if (isLastDayOfTheMonth()) {
-            items.add(RadioItem(REPEAT_LAST_DAY, getString(R.string.repeat_on_the_last_day_monthly)))
+            items.add(
+                RadioItem(
+                    REPEAT_LAST_DAY,
+                    getString(R.string.repeat_on_the_last_day_monthly)
+                )
+            )
         }
         return items
     }
 
     private fun getAvailableYearlyRepetitionRules(): ArrayList<RadioItem> {
-        val items = arrayListOf(RadioItem(REPEAT_SAME_DAY, getString(R.string.repeat_on_the_same_day_yearly)))
+        val items = arrayListOf(
+            RadioItem(
+                REPEAT_SAME_DAY,
+                getString(R.string.repeat_on_the_same_day_yearly)
+            )
+        )
 
-        items.add(RadioItem(REPEAT_ORDER_WEEKDAY, getRepeatXthDayInMonthString(true, REPEAT_ORDER_WEEKDAY)))
+        items.add(
+            RadioItem(
+                REPEAT_ORDER_WEEKDAY,
+                getRepeatXthDayInMonthString(true, REPEAT_ORDER_WEEKDAY)
+            )
+        )
         if (isLastWeekDayOfMonth()) {
-            items.add(RadioItem(REPEAT_ORDER_WEEKDAY_USE_LAST, getRepeatXthDayInMonthString(true, REPEAT_ORDER_WEEKDAY_USE_LAST)))
+            items.add(
+                RadioItem(
+                    REPEAT_ORDER_WEEKDAY_USE_LAST,
+                    getRepeatXthDayInMonthString(true, REPEAT_ORDER_WEEKDAY_USE_LAST)
+                )
+            )
         }
 
         return items
     }
 
-    private fun isLastDayOfTheMonth() = mTaskDateTime.dayOfMonth == mTaskDateTime.dayOfMonth().withMaximumValue().dayOfMonth
+    private fun isLastDayOfTheMonth() =
+        mTaskDateTime.dayOfMonth == mTaskDateTime.dayOfMonth().withMaximumValue().dayOfMonth
 
-    private fun isLastWeekDayOfMonth() = mTaskDateTime.monthOfYear != mTaskDateTime.plusDays(7).monthOfYear
+    private fun isLastWeekDayOfMonth() =
+        mTaskDateTime.monthOfYear != mTaskDateTime.plusDays(7).monthOfYear
 
     private fun getRepeatXthDayString(includeBase: Boolean, repeatRule: Int): String {
         val dayOfWeek = mTaskDateTime.dayOfWeek
@@ -970,7 +1103,8 @@ class TaskActivity : SimpleActivity() {
         return if (includeBase) {
             "$base $order $dayString"
         } else {
-            val everyString = getString(if (isMaleGender(mTaskDateTime.dayOfWeek)) R.string.every_m else R.string.every_f)
+            val everyString =
+                getString(if (isMaleGender(mTaskDateTime.dayOfWeek)) R.string.every_m else R.string.every_f)
             "$everyString $order $dayString"
         }
     }
@@ -1023,7 +1157,8 @@ class TaskActivity : SimpleActivity() {
 
     private fun getRepeatXthDayInMonthString(includeBase: Boolean, repeatRule: Int): String {
         val weekDayString = getRepeatXthDayString(includeBase, repeatRule)
-        val monthString = resources.getStringArray(com.goodwy.commons.R.array.in_months)[mTaskDateTime.monthOfYear - 1]
+        val monthString =
+            resources.getStringArray(com.goodwy.commons.R.array.in_months)[mTaskDateTime.monthOfYear - 1]
         return "$weekDayString $monthString"
     }
 
@@ -1046,16 +1181,18 @@ class TaskActivity : SimpleActivity() {
             }
 
             mRepeatInterval.isXMonthlyRepetition() -> {
-                val repeatString = if (mRepeatRule == REPEAT_ORDER_WEEKDAY_USE_LAST || mRepeatRule == REPEAT_ORDER_WEEKDAY)
-                    R.string.repeat else R.string.repeat_on
+                val repeatString =
+                    if (mRepeatRule == REPEAT_ORDER_WEEKDAY_USE_LAST || mRepeatRule == REPEAT_ORDER_WEEKDAY)
+                        R.string.repeat else R.string.repeat_on
 
                 binding.taskRepetitionRuleLabel.text = getString(repeatString)
                 binding.taskRepetitionRule.text = getMonthlyRepetitionRuleText()
             }
 
             mRepeatInterval.isXYearlyRepetition() -> {
-                val repeatString = if (mRepeatRule == REPEAT_ORDER_WEEKDAY_USE_LAST || mRepeatRule == REPEAT_ORDER_WEEKDAY)
-                    R.string.repeat else R.string.repeat_on
+                val repeatString =
+                    if (mRepeatRule == REPEAT_ORDER_WEEKDAY_USE_LAST || mRepeatRule == REPEAT_ORDER_WEEKDAY)
+                        R.string.repeat else R.string.repeat_on
 
                 binding.taskRepetitionRuleLabel.text = getString(repeatString)
                 binding.taskRepetitionRule.text = getYearlyRepetitionRuleText()

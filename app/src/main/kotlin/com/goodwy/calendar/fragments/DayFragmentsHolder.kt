@@ -1,6 +1,5 @@
 package com.goodwy.calendar.fragments
 
-import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -19,6 +18,7 @@ import com.goodwy.commons.extensions.getProperBackgroundColor
 import com.goodwy.commons.extensions.setupDialogStuff
 import com.goodwy.commons.views.MyViewPager
 import org.joda.time.DateTime
+import androidx.core.graphics.drawable.toDrawable
 
 class DayFragmentsHolder : MyFragmentHolder(), NavigationListener {
     private val PREFILLED_DAYS = 251
@@ -39,7 +39,7 @@ class DayFragmentsHolder : MyFragmentHolder(), NavigationListener {
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val binding = FragmentDaysHolderBinding.inflate(inflater, container, false)
-        binding.root.background = ColorDrawable(requireContext().getProperBackgroundColor())
+        binding.root.background = requireContext().getProperBackgroundColor().toDrawable()
         viewPager = binding.fragmentDaysViewpager
         viewPager.id = (System.currentTimeMillis() % 100000).toInt()
         setupFragment()
@@ -139,7 +139,7 @@ class DayFragmentsHolder : MyFragmentHolder(), NavigationListener {
 
     override fun getCurrentDate(): DateTime? {
         return if (currentDayCode != "") {
-            Formatter.getDateTimeFromCode(currentDayCode)
+            Formatter.getLocalDateTimeFromCode(currentDayCode)
         } else {
             null
         }

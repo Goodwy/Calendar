@@ -4,6 +4,16 @@
     <string name="app_name_g">Right Calendar</string>
 
     <!-- Release notes -->
+    <string name="release_820">
+        Compatibility updates for Android 15 &amp; 16\n
+        Changed the logic of styles\n
+        Changed colors of context action modes\n
+        Added ‘App font’ option\n
+        Replaced ‘event types’ concept with ‘calendars’\n
+        Renamed built-in ‘Regular event’ calendar to ‘Local calendar’\n
+        Updated holiday data\n
+        Fixed bugs, improved stability
+    </string>
     <string name="release_632">
         Support for setting event visibility\n
         Option to hide date header in event list widget\n
